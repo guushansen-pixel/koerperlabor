@@ -58,8 +58,14 @@ Gerätecheck, Backup, Export. Selbsttest 29/29; der ganze Morgen-Check lief
 im Browser mit simulierten Sensoren durch. Signierte APK
 `dist/koerperlabor-1.0.apk`.
 
-**Am Gerät noch nichts getestet.** Offene Fragen, in dieser Reihenfolge
-prüfen (Einstellungen → Gerätecheck zeigt die ersten drei):
+**Erster Gerätetest (Pixel, 2026-11-14):** Fragen 1–3 unten sind
+beantwortet: `devicemotion` liefert 60 Werte pro Sekunde, `getUserMedia`
+funktioniert unter `file://` (240×320), der Blitz geht an. Im Dunkeln (ohne
+Finger) kamen nur 15 Bilder pro Sekunde; die Rate bei aufgelegtem Finger ist
+nicht gemessen. Pulstest: App 62 /min gegen Oura 65 /min. Sprung, Zittern,
+Balance, Atmung, Signalqualität und HRV sind am Gerät noch offen.
+
+Ursprüngliche Fragenliste (Einstellungen → Gerätecheck zeigt die ersten drei):
 
 1. Liefert `devicemotion` im WebView unter `file://` Daten?
 2. Funktioniert `getUserMedia` unter `file://` (Berechtigungsdialog kommt)?
