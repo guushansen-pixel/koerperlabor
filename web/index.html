@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Körper-Labor</title>
+<style>
+:root {
+  --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px);
+  --bg: #12171E; --card: #1B222C; --line: #2A3441; --txt: #E8EDF2; --muted: #93A0AF;
+  --acc: #3FB6A8; --good: #4CC38A; --bad: #E5674F; --warn: #E0A93B;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--txt);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#app { max-width: 560px; margin: 0 auto; padding: calc(var(--sat) + 8px) 14px calc(var(--sab) + 28px); }
+header { display: flex; align-items: center; gap: 8px; height: 48px; }
+header h1 { font-size: 20px; margin: 0; flex: 1; }
+#back { background: none; border: 0; color: var(--txt); font-size: 30px; line-height: 1; padding: 0 12px 4px 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin: 10px 0; }
+.card h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.muted { color: var(--muted); } .small { font-size: 13px; } .good { color: var(--good); } .bad { color: var(--bad); }
+.big { font-size: 34px; font-weight: 700; line-height: 1.15; }
+button { font: inherit; color: var(--txt); background: #26303D; border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; }
+button.primary { background: var(--acc); border-color: var(--acc); color: #06201D; font-weight: 700; }
+button.block { display: block; width: 100%; margin-top: 8px; }
+button.ghost { background: none; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid button { text-align: left; } .grid button span { display: block; font-size: 12px; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; } .row > .grow { flex: 1; }
+.item { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.item:first-of-type { border-top: 0; } .item > div.grow { flex: 1; } .item b { white-space: nowrap; }
+label.c { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+canvas.chart { width: 100%; height: 130px; display: block; }
+.bar { height: 8px; background: #0E1319; border-radius: 4px; overflow: hidden; margin: 14px 0; }
+.bar i { display: block; height: 100%; width: 0; background: var(--acc); }
+ul { margin: 6px 0; padding-left: 20px; } li { margin: 4px 0; }
+textarea.mono { width: 100%; height: 110px; background: #0E1319; color: var(--txt); border: 1px solid var(--line); border-radius: 10px; padding: 8px; font: 12px/1.4 monospace; }
+
+/* Mess-Ansicht: Vollbild ueber der App */
+#meas { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
+  padding: calc(var(--sat) + 8px) 16px calc(var(--sab) + 16px); touch-action: manipulation; }
+#meas[hidden], #modal[hidden] { display: none; }
+#m-top { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+#m-title { flex: 1; font-size: 20px; font-weight: 700; }
+#m-quit { font-size: 13px; padding: 7px 12px; }
+#m-body { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+#m-body .center { text-align: center; }
+.pad { flex: 1; border-radius: 18px; background: #26303D; border: 1px solid var(--line); display: flex; align-items: center;
+  justify-content: center; font-size: 26px; font-weight: 700; margin: 12px 0; user-select: none; text-align: center; padding: 12px; }
+.pad.go { background: var(--acc); color: #06201D; } .pad.err { background: #4A2622; }
+.keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.keys button { font-size: 22px; padding: 14px 0; }
+canvas.trace { width: 100%; height: 90px; display: block; margin-top: 10px; }
+.digit { font-size: 90px; font-weight: 700; text-align: center; min-height: 130px; }
+#modal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+#modal > div { background: var(--card); width: 100%; max-width: 560px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(var(--sab) + 16px); }
+#modal h3 { margin: 0 0 6px; }
+.btns { display: flex; gap: 8px; margin-top: 12px; } .btns button { flex: 1; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><button id="back" aria-label="Zurück">‹</button><h1 id="title">Körper-Labor</h1></header>
+  <main id="view"></main>
+</div>
+<div id="meas" hidden>
+  <div id="m-top"><span id="m-title"></span><button id="m-quit">Abbrechen</button></div>
+  <div id="m-step" class="muted small"></div>
+  <div id="m-body"></div>
+</div>
+<div id="modal" hidden><div id="modal-in"></div></div>
+
+<script>
+'use strict';
+// =====================================================================
+// Koerper-Labor: kurze Selbstmessungen mit den Sensoren des Handys
+// (Kamera fuer Puls/HRV, Beschleunigungssensor fuer Atem, Sprung, Zittern,
+// Balance) und drei Kopf-Tests. Messgenauigkeit und Grenzen siehe README.md.
+// Aufbau: Daten -> Signalverarbeitung (rein, im Selbsttest abgedeckt)
+//         -> Sensoren -> Testablauf -> Ansichten -> Export -> Selbsttest.
+// =====================================================================
+const $ = id => document.getElementById(id);
+const NATIVE = window.KlAndroid;
+
+// ---------------------------------------------------------------- Daten
+const K = { set: 'koerperlabor.settings.v1', days: 'koerperlabor.days.v1' };
+const DEFAULT_SETTINGS = { schema: 1, check: ['puls', 'reaktion', 'tapping', 'zittern', 'sprung'], sound: true, lastExport: null };
+let saveOk = true;
+function load(k, fb) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? fb : v; } catch (e) { return fb; } }
+function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { saveOk = false; } }
+const db = { settings: Object.assign({}, DEFAULT_SETTINGS, load(K.set, {})), days: load(K.days, {}) };
+function saveAll() { store(K.set, db.settings); store(K.days, db.days); }
+function migrate() { if (!db.settings.schema) db.settings.schema = 1; }
+migrate();
+
+function dstr(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function today() { return dstr(new Date()); }
+function nowHM() { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+function wdName(date) { return WD[new Date(date + 'T12:00').getDay()]; }
+function dShort(s) { return s.slice(8, 10) + '.' + s.slice(5, 7) + '.'; }
+function fmt(v, d) { return Number(v).toFixed(d).replace('.', ','); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// Messgroessen: [Test, Feld, Beschriftung, Einheit, Nachkommastellen, Feld im Health OS]
+const METRICS = [
+  { k: 'puls', f: 'hr', label: 'Puls', unit: '/min', d: 0, json: 'lab_puls' },
+  { k: 'puls', f: 'rmssd', label: 'HRV (RMSSD)', unit: 'ms', d: 0, json: 'lab_rmssd' },
+  { k: 'reaktion', f: 'ms', label: 'Reaktion', unit: 'ms', d: 0, json: 'lab_reaktion_ms' },
+  { k: 'tapping', f: 'tps', label: 'Tapping', unit: '/s', d: 1, json: 'lab_tapping' },
+  { k: 'merken', f: 'span', label: 'Zahlen merken', unit: 'Ziffern', d: 0, json: 'lab_merken' },
+  { k: 'zittern', f: 'mg', label: 'Zittern', unit: 'mg', d: 1, json: 'lab_zittern_mg' },
+  { k: 'balance', f: 'mg', label: 'Balance (Schwanken)', unit: 'mg', d: 1, json: 'lab_balance_mg' },
+  { k: 'sprung', f: 'cm', label: 'Sprung', unit: 'cm', d: 1, json: 'lab_sprung_cm' },
+  { k: 'atem', f: 'bpm', label: 'Atemzüge', unit: '/min', d: 1, json: 'lab_atem' }];
+const MIN_QUALITY = 0.6;
+// Wert einer Messgroesse an einem Tag; HRV nur bei brauchbarem Signal.
+function val(day, m) {
+  const r = day && day[m.k]; if (!r || r[m.f] == null) return null;
+  if (m.k === 'puls' && m.f === 'rmssd' && !(r.quality >= MIN_QUALITY)) return null;
+  return r[m.f];
+}
+function median(a) { if (!a.length) return NaN; const s = Array.from(a).sort((x, y) => x - y), h = s.length >> 1; return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2; }
+// Eigener Schnitt: Median der bis zu 14 letzten frueheren Tage, ab 3 Werten.
+function baseline(m, days, before) {
+  const v = Object.keys(days).filter(d => d < before).sort().slice(-14).map(d => val(days[d], m)).filter(x => x != null);
+  return v.length >= 3 ? median(v) : null;
+}
+
+// ---------------------------------------------------------------- Signalverarbeitung
+function mean(a) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]; return a.length ? s / a.length : NaN; }
+function std(a) { const m = mean(a); let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - m) * (a[i] - m); return a.length ? Math.sqrt(s / a.length) : NaN; }
+// Zentrierter gleitender Mittelwert ueber w Werte (an den Raendern kuerzer).
+function movAvg(x, w) {
+  const n = x.length, out = new Float64Array(n), h = Math.floor(w / 2), pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + x[i];
+  for (let i = 0; i < n; i++) { const a = Math.max(0, i - h), b = Math.min(n - 1, i + h); out[i] = (pre[b + 1] - pre[a]) / (b - a + 1); }
+  return out;
+}
+function sub(a, b) { const o = new Float64Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] - b[i]; return o; }
+// Ungleichmaessige Abtastung (Zeiten in s) linear auf ein festes Raster bringen.
+function resample(ts, xs, hz) {
+  if (ts.length < 2) return new Float64Array(0);
+  const n = Math.max(0, Math.floor((ts[ts.length - 1] - ts[0]) * hz)), out = new Float64Array(n);
+  let j = 0;
+  for (let i = 0; i < n; i++) {
+    const t = ts[0] + i / hz; while (j < ts.length - 2 && ts[j + 1] < t) j++;
+    const d = ts[j + 1] - ts[j]; out[i] = d > 0 ? xs[j] + (xs[j + 1] - xs[j]) * (t - ts[j]) / d : xs[j];
+  }
+  return out;
+}
+
+// Puls aus dem Helligkeitsverlauf der Kamera (Finger auf Linse und Blitz).
+// ts in s, vs = mittlere Helligkeit eines Farbkanals. Die ersten skip Sekunden
+// fallen weg (Belichtung regelt nach). Liefert {hr, rmssd, quality, beats}.
+const PPG_HZ = 30;
+function analyzePPG(ts, vs, skip) {
+  let k = 0; while (k < ts.length && ts[k] < (skip || 0)) k++;
+  const t = ts.slice(k), v = vs.slice(k);
+  if (t.length < PPG_HZ * 8) return null;
+  const x = resample(t, v, PPG_HZ), hp = sub(x, movAvg(x, PPG_HZ + 1)), sm = movAvg(hp, 5), n = sm.length;
+  const y = new Float64Array(n); for (let i = 0; i < n; i++) y[i] = -sm[i];     // Herzschlag = Helligkeit faellt
+  const cand = []; for (let i = 1; i < n - 1; i++) if (y[i] > 0 && y[i] >= y[i - 1] && y[i] > y[i + 1]) cand.push(i);
+  if (cand.length < 6) return null;
+  const amps = cand.map(i => y[i]).sort((a, b) => a - b), ref = median(amps.slice(amps.length >> 1));
+  const keep = [];
+  cand.filter(i => y[i] >= 0.4 * ref).forEach(i => {
+    const l = keep[keep.length - 1];
+    if (l !== undefined && i - l < PPG_HZ * 0.33) { if (y[i] > y[l]) keep[keep.length - 1] = i; } else keep.push(i);
+  });
+  // Gipfelzeit per Parabel durch drei Punkte genauer als das 33-ms-Raster
+  const pt = keep.map(i => { const d = y[i - 1] - 2 * y[i] + y[i + 1]; return (i + (d ? 0.5 * (y[i - 1] - y[i + 1]) / d : 0)) / PPG_HZ; });
+  const ibi = []; for (let i = 1; i < pt.length; i++) ibi.push(pt[i] - pt[i - 1]);
+  const plaus = ibi.filter(d => d >= 0.33 && d <= 1.5);
+  if (plaus.length < 5) return null;
+  const med = median(plaus), ok = ibi.map(d => Math.abs(d - med) <= 0.25 * med), good = ibi.filter((d, i) => ok[i]);
+  let sq = 0, c = 0;
+  for (let i = 1; i < ibi.length; i++) if (ok[i] && ok[i - 1]) { sq += (ibi[i] - ibi[i - 1]) * (ibi[i] - ibi[i - 1]); c++; }
+  return { hr: 60 / mean(good), rmssd: c >= 10 ? Math.sqrt(sq / c) * 1000 : null, quality: good.length / ibi.length, beats: good.length };
+}
+// Besseren der beiden Farbkanaele nehmen (Rot uebersteuert mit Blitz auf manchen Geraeten).
+function bestPPG(S, skip) {
+  const a = analyzePPG(S.t, S.r, skip), b = analyzePPG(S.t, S.g, skip), score = r => r ? r.quality * r.beats : -1;
+  const best = score(a) >= score(b) ? a : b;
+  return best ? { hr: Math.round(best.hr * 10) / 10, rmssd: best.rmssd == null ? null : Math.round(best.rmssd), quality: Math.round(best.quality * 100) / 100, kanal: best === a ? 'rot' : 'gruen' } : null;
+}
+
+// Spruenge: Im Flug misst der Sensor fast 0 (freier Fall). Flugzeit T zwischen
+// Unter- und Ueberschreiten von 0,5 g, Hoehe = g*T²/8. mag = Betrag inkl. Schwerkraft in m/s².
+function analyzeJump(ts, mag) {
+  // Geglaettet wird nur, um die Flugphase zu finden (ein Ausreisser soll sie nicht
+  // teilen); Anfang und Ende werden an den ungeglaetteten Werten bestimmt, weil
+  // die Glaettung die steilen Flanken verschiebt und die Flugzeit verkuerzt.
+  const m = movAvg(mag, 3), out = [], LOW = 3, THR = 4.9, n = ts.length;
+  const cross = (i0, i1) => { const d = mag[i1] - mag[i0]; return d ? ts[i0] + (THR - mag[i0]) / d * (ts[i1] - ts[i0]) : ts[i1]; };
+  let i = 0;
+  while (i < n) {
+    if (m[i] < LOW) {
+      let a = i, b = i; while (a > 0 && m[a - 1] < THR) a--; while (b < n - 1 && m[b + 1] < THR) b++;
+      let s = Math.max(0, a - 2), e = Math.min(n - 1, b + 2);
+      while (s < e && mag[s] >= THR) s++; while (e > s && mag[e] >= THR) e--;
+      const T = (e < n - 1 ? cross(e, e + 1) : ts[e]) - (s > 0 ? cross(s - 1, s) : ts[s]);
+      if (T >= 0.15 && T <= 0.9) out.push(Math.round(9.81 * T * T / 8 * 1000) / 10);
+      i = b + 1;
+    } else i++;
+  }
+  return out;
+}
+// Atmung: Das Handy auf dem Bauch kippt mit jedem Atemzug leicht. Achse mit der
+// groessten langsamen Schwankung nehmen, Atemzuege als Aufwaerts-Durchgaenge zaehlen.
+function analyzeBreath(S) {
+  const HZ = 25; let best = null;
+  ['x', 'y', 'z'].forEach(k => {
+    const r = resample(S.t, S[k], HZ); if (r.length < HZ * 20) return;
+    const y = movAvg(sub(r, movAvg(r, HZ * 8 + 1)), 37), sd = std(y);
+    if (!best || sd > best.sd) best = { y, sd };
+  });
+  if (!best || !(best.sd > 0.002)) return null;
+  const y = best.y, th = 0.3 * best.sd, ups = []; let armed = false;
+  for (let i = 0; i < y.length; i++) { if (y[i] < -th) armed = true; else if (armed && y[i] > th) { ups.push(i / HZ); armed = false; } }
+  if (ups.length < 3) return null;
+  const iv = []; for (let i = 1; i < ups.length; i++) iv.push(ups[i] - ups[i - 1]);
+  const mi = mean(iv);
+  return { bpm: Math.round(60 / mi * 10) / 10, cv: Math.round(std(iv) / mi * 100) / 100, breaths: ups.length };
+}
+// Ruhighalten: mittlere Beschleunigung in einem Frequenzband, in Milli-g.
+// 'zittern' = schnelle Anteile (ab etwa 3 Hz), 'balance' = langsames Schwanken (0,2-2,5 Hz).
+function analyzeSteady(S, mode) {
+  const HZ = 50, ax = ['x', 'y', 'z'].map(k => resample(S.t, S[k], HZ)), n = ax[0].length;
+  if (n < HZ * 5) return null;
+  const f = ax.map(r => mode === 'zittern' ? sub(r, movAvg(r, 13)) : sub(movAvg(r, 11), movAvg(r, 201)));
+  let s = 0, c = 0;
+  for (let i = HZ; i < n - HZ; i++) { s += f[0][i] * f[0][i] + f[1][i] * f[1][i] + f[2][i] * f[2][i]; c++; }
+  return { mg: Math.round(Math.sqrt(s / c) / 9.81 * 1000 * 10) / 10 };
+}
+
+// ---------------------------------------------------------------- Ton / Vibration
+let actx = null;
+function beep(freq, dur) {
+  if (!db.settings.sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.frequency.value = freq; g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+function buzz(p) { if (navigator.vibrate) { try { navigator.vibrate(p); } catch (e) {} } }
+
+// ---------------------------------------------------------------- Sensoren
+// Kamera: liefert pro Bild die mittlere Helligkeit je Farbkanal.
+const Cam = {
+  async open() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Kein Kamerazugriff in dieser Umgebung');
+    const base = { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 30 } };
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ facingMode: { exact: 'environment' } }, base) }); }
+    catch (e) { stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true }); }
+    const video = document.createElement('video');
+    video.playsInline = true; video.muted = true; video.srcObject = stream;
+    video.style.cssText = 'position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none';
+    document.body.appendChild(video);
+    try { await video.play(); } catch (e) {}
+    const track = stream.getVideoTracks()[0];
+    let torch = false;
+    try { await track.applyConstraints({ advanced: [{ torch: true }] }); torch = !!(track.getSettings && track.getSettings().torch); } catch (e) {}
+    const cv = document.createElement('canvas'); cv.width = cv.height = 24;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const o = { torch, closed: false, frames: 0, onFrame: null, settings: track.getSettings ? track.getSettings() : {},
+      close() { if (o.closed) return; o.closed = true; clearTimeout(o.timer); try { track.stop(); } catch (e) {} video.remove(); } };
+    let last = 0;
+    const grab = t => {
+      if (o.closed) return;
+      try {
+        ctx.drawImage(video, 0, 0, 24, 24); const d = ctx.getImageData(0, 0, 24, 24).data; let r = 0, g = 0, b = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+        o.frames++; last = performance.now(); o.onFrame && o.onFrame(t, r / 576, g / 576, b / 576);
+      } catch (e) {}
+    };
+    // Bildgenau, wenn der Browser es kann; sonst (oder wenn nichts kommt) im 33-ms-Takt.
+    const viaFrame = (now, meta) => { if (o.closed) return; grab(meta && meta.mediaTime > 0 ? meta.mediaTime * 1000 : now); video.requestVideoFrameCallback(viaFrame); };
+    const viaTimer = () => { if (o.closed) return; if (performance.now() - last > 150) grab(performance.now()); o.timer = setTimeout(viaTimer, 33); };
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(viaFrame);
+    last = performance.now(); viaTimer();
+    return o;
+  }
+};
+// Beschleunigungssensor: sammelt (t, x, y, z) inklusive Schwerkraft, bis stop() gerufen wird.
+function motionRecorder() {
+  const S = { t: [], x: [], y: [], z: [] }; let t0 = null;
+  const h = e => {
+    const a = e.accelerationIncludingGravity; if (!a || a.x == null) return;
+    const t = performance.now(); if (t0 === null) t0 = t;
+    S.t.push((t - t0) / 1000); S.x.push(a.x); S.y.push(a.y); S.z.push(a.z);
+  };
+  window.addEventListener('devicemotion', h);
+  return { S, stop() { window.removeEventListener('devicemotion', h); } };
+}
+
+// ---------------------------------------------------------------- Testablauf
+const RUN = { active: false, token: 0, ids: [], i: 0, results: {}, cleanup: [] };
+const body = html => { $('m-body').innerHTML = html; };
+function later(ms, fn) { const tok = RUN.token; return setTimeout(() => { if (RUN.active && tok === RUN.token) fn(); }, ms); }
+function cleanup(fn) { RUN.cleanup.push(fn); }
+function runCleanup() { RUN.cleanup.splice(0).forEach(f => { try { f(); } catch (e) {} }); }
+function startRun(ids) {
+  if (!ids.length) return;
+  RUN.active = true; RUN.token++; RUN.ids = ids; RUN.i = 0; RUN.results = {};
+  $('meas').hidden = false; resetQuit(); location.hash = 'run'; nextTest();
+}
+function nextTest() {
+  runCleanup(); RUN.token++;
+  if (RUN.i >= RUN.ids.length) { finishRun(); return; }
+  const id = RUN.ids[RUN.i], T = TESTS[id];
+  $('m-title').textContent = T.name;
+  $('m-step').textContent = RUN.ids.length > 1 ? 'Test ' + (RUN.i + 1) + ' von ' + RUN.ids.length : '';
+  body('<div>' + T.intro + '</div><button class="primary block" id="t-go">Start</button>' +
+    (RUN.ids.length > 1 ? '<button class="ghost block" id="t-skip">Überspringen</button>' : ''));
+  $('t-go').onclick = () => { RUN.token++; T.start(res => showResult(id, res), msg => showFail(id, msg)); };
+  if ($('t-skip')) $('t-skip').onclick = () => { RUN.i++; nextTest(); };
+}
+function resultHtml(id, r) {
+  return METRICS.filter(m => m.k === id).map(m => {
+    const v = val({ [id]: r }, m), b = baseline(m, db.days, today());
+    return '<div class="center" style="margin:10px 0"><div class="muted small">' + m.label + '</div><div class="big">' +
+      (v == null ? '–' : fmt(v, m.d) + ' <span class="small muted">' + m.unit + '</span>') + '</div>' +
+      (b != null ? '<div class="muted small">dein Schnitt: ' + fmt(b, m.d) + ' ' + m.unit + '</div>' : '') + '</div>';
+  }).join('') + (TESTS[id].note ? '<div class="muted small center">' + TESTS[id].note(r) + '</div>' : '');
+}
+function showResult(id, r) {
+  runCleanup(); RUN.token++; RUN.results[id] = r; beep(880, 0.12);
+  const last = RUN.i >= RUN.ids.length - 1;
+  body(resultHtml(id, r) + '<button class="primary block" id="t-next">' + (last ? 'Fertig' : 'Weiter') + '</button><button class="ghost block" id="t-again">Wiederholen</button>');
+  $('t-next').onclick = () => { RUN.i++; nextTest(); };
+  $('t-again').onclick = () => { delete RUN.results[id]; nextTest(); };
+}
+function showFail(id, msg) {
+  runCleanup(); RUN.token++;
+  body('<p class="bad center">' + esc(msg) + '</p><button class="primary block" id="t-again">Noch einmal</button><button class="ghost block" id="t-next">' +
+    (RUN.i >= RUN.ids.length - 1 ? 'Beenden' : 'Überspringen') + '</button>');
+  $('t-again').onclick = nextTest; $('t-next').onclick = () => { RUN.i++; nextTest(); };
+}
+// Ergebnisse in den heutigen Tag schreiben (spaetere Messung ersetzt fruehere).
+function saveResults() {
+  const ids = Object.keys(RUN.results); if (!ids.length) return false;
+  const d = db.days[today()] || (db.days[today()] = { datum: today() });
+  ids.forEach(id => { d[id] = RUN.results[id]; }); d.zeit = nowHM(); store(K.days, db.days); RUN.results = {};
+  return true;
+}
+function finishRun() { const any = saveResults(); RUN.active = false; RUN.token++; runCleanup(); $('meas').hidden = true; location.replace(any ? '#done' : '#home'); }
+function abortRun() { saveResults(); RUN.active = false; RUN.token++; runCleanup(); $('meas').hidden = true; }
+let quitArmed = 0;
+function resetQuit() { quitArmed = 0; $('m-quit').textContent = 'Abbrechen'; }
+$('m-quit').onclick = () => {
+  if (Date.now() - quitArmed < 3000) { history.back(); return; }
+  quitArmed = Date.now(); $('m-quit').textContent = 'Wirklich abbrechen?'; setTimeout(resetQuit, 3000);
+};
+// Aufnahme des Bewegungssensors mit Vorzaehlen. Das Display muss man dabei nicht
+// sehen: Start und Ende kommen als Ton und Vibration.
+function recordMotion(sec, hint, ok, fail) {
+  body('<div class="center"><div class="big" id="r-n">3</div><div class="muted" id="r-l">gleich geht es los</div></div><div class="bar"><i id="r-bar"></i></div>');
+  const rec = motionRecorder(); cleanup(() => rec.stop());
+  const count = n => {
+    if (n > 0) { $('r-n').textContent = n; beep(440, 0.08); later(1000, () => count(n - 1)); return; }
+    rec.S.t.length = rec.S.x.length = rec.S.y.length = rec.S.z.length = 0;
+    const off = rec.S.t.length; beep(880, 0.25); buzz(80);
+    const t0 = performance.now(); $('r-l').textContent = hint;
+    const tick = () => {
+      const el = (performance.now() - t0) / 1000;
+      if (el >= sec) {
+        rec.stop(); beep(660, 0.3); buzz([120, 80, 120]);
+        const S = rec.S, base = S.t.length ? S.t[0] : 0; for (let i = 0; i < S.t.length; i++) S.t[i] -= base;
+        if (S.t.length < sec * 5 + off) fail('Der Bewegungssensor liefert keine Daten.'); else ok(S);
+        return;
+      }
+      $('r-n').textContent = Math.ceil(sec - el); $('r-bar').style.width = (el / sec * 100) + '%'; later(200, tick);
+    };
+    tick();
+  };
+  count(3);
+}
+
+const PULS_SEC = 60, PULS_SKIP = 4;
+const TESTS = {
+  puls: { name: 'Puls & HRV', dur: 65,
+    intro: '<p>Lege eine Fingerkuppe locker auf die Hauptkamera und den Blitz auf der Rückseite, sodass beide bedeckt sind. Nicht fest drücken. Hand ablegen, ruhig sitzen, normal atmen. Die Messung dauert 60 Sekunden und startet, sobald der Finger erkannt ist.</p>',
+    note: r => r.quality < MIN_QUALITY ? 'Signal unruhig (' + Math.round(r.quality * 100) + ' %): Puls ist ein Schätzwert, HRV wird nicht gewertet. Finger lockerer auflegen und ruhig halten.' : 'Signal ' + Math.round(r.quality * 100) + ' % · HRV aus der Kamera ist ein Näherungswert.',
+    start(ok, fail) {
+      body('<div class="center"><div class="big" id="p-bpm">–</div><div class="muted" id="p-hint">Kamera startet …</div></div><canvas class="trace" id="p-trace"></canvas><div class="bar"><i id="p-bar"></i></div>');
+      const tok = RUN.token;
+      Cam.open().then(cam => {
+        if (!RUN.active || tok !== RUN.token) { cam.close(); return; }
+        cleanup(() => cam.close());
+        let S = { t: [], r: [], g: [] }, t0 = null, lost = 0, n = 0;
+        cam.onFrame = (t, r, g, b) => {
+          if (!RUN.active || tok !== RUN.token) return;
+          const finger = r > 60 && r > 1.5 * g && r > 1.5 * b;
+          if (!finger) {
+            if (t0 !== null && ++lost > 45) { t0 = null; S = { t: [], r: [], g: [] }; $('p-bar').style.width = '0'; $('p-bpm').textContent = '–'; }
+            if (t0 === null) $('p-hint').textContent = 'Finger auf Kamera und Blitz legen' + (cam.torch ? '' : ' (Blitz ließ sich nicht einschalten: gegen eine helle Lampe halten)');
+            return;
+          }
+          lost = 0; if (t0 === null) { t0 = t; $('p-hint').textContent = 'Messung läuft, ruhig halten'; beep(880, 0.1); }
+          const el = (t - t0) / 1000; S.t.push(el); S.r.push(r); S.g.push(g);
+          if (++n % 15 === 0) {
+            $('p-bar').style.width = Math.min(100, el / PULS_SEC * 100) + '%'; drawTrace($('p-trace'), S.r.slice(-150));
+            if (el > 10) { const k = S.t.findIndex(x => x >= el - 10), live = analyzePPG(S.t.slice(k).map(x => x - S.t[k]), S.r.slice(k), 0); $('p-bpm').textContent = live ? Math.round(live.hr) : '–'; }
+          }
+          if (el >= PULS_SEC) { cam.close(); buzz(120); const res = bestPPG(S, PULS_SKIP); if (res) ok(res); else fail('Kein Puls erkennbar. Finger locker auflegen, Blitz und Kamera bedecken.'); }
+        };
+        later(4000, () => { if (!cam.frames) fail('Die Kamera liefert keine Bilder.'); });
+      }).catch(e => { if (RUN.active && tok === RUN.token) fail('Kamera nicht verfügbar: ' + (e && (e.message || e.name) || 'unbekannter Fehler')); });
+    } },
+  reaktion: { name: 'Reaktion', dur: 30,
+    intro: '<p>Tippe so schnell wie möglich auf die Fläche, sobald sie die Farbe wechselt. Sechs Durchgänge, der erste zählt nicht. Handy liegt auf dem Tisch oder in der Hand, immer gleich.</p>',
+    note: r => r.fehl ? r.fehl + ' Fehlstart' + (r.fehl > 1 ? 's' : '') : '',
+    start(ok) {
+      const rts = []; let fehl = 0, t0 = 0, state = 'wait', timer = 0;
+      body('<div class="pad" id="pad">Warten …</div><div class="muted small center" id="r-info"></div>');
+      const pad = $('pad'), arm = () => {
+        state = 'wait'; pad.className = 'pad'; pad.textContent = 'Warten …'; $('r-info').textContent = 'Durchgang ' + (rts.length + 1) + ' von 6';
+        timer = later(1500 + Math.random() * 2500, () => {
+          state = 'go'; pad.className = 'pad go'; pad.textContent = 'TIPPEN!'; t0 = performance.now();
+          requestAnimationFrame(() => { if (state === 'go') t0 = performance.now(); });
+        });
+      };
+      pad.addEventListener('pointerdown', e => {
+        e.preventDefault(); const now = performance.now();
+        if (state === 'wait') { clearTimeout(timer); fehl++; state = 'pause'; pad.className = 'pad err'; pad.textContent = 'Zu früh'; later(900, arm); return; }
+        if (state !== 'go') return;
+        rts.push(now - t0); state = 'pause'; pad.className = 'pad'; pad.textContent = Math.round(now - t0) + ' ms';
+        if (rts.length >= 6) later(500, () => ok({ ms: Math.round(median(rts.slice(1))), fehl })); else later(600, arm);
+      });
+      arm();
+    } },
+  tapping: { name: 'Tapping', dur: 15,
+    intro: '<p>Tippe 10 Sekunden lang so schnell wie möglich mit dem Zeigefinger deiner Schreibhand auf die Fläche. Die Zeit läuft ab dem ersten Tipp.</p>',
+    start(ok) {
+      let n = 0, t0 = 0, done = false;
+      body('<div class="pad" id="pad">Lostippen</div><div class="bar"><i id="r-bar"></i></div>');
+      const tick = () => { const el = (performance.now() - t0) / 1000; if (el >= 10) { done = true; ok({ tps: Math.round(n / 10 * 10) / 10 }); return; } $('r-bar').style.width = el * 10 + '%'; later(100, tick); };
+      $('pad').addEventListener('pointerdown', e => { e.preventDefault(); if (done) return; if (!n) { t0 = performance.now(); tick(); } n++; $('pad').textContent = n; });
+    } },
+  merken: { name: 'Zahlen merken', dur: 70,
+    intro: '<p>Ziffern erscheinen nacheinander. Tippe sie danach in derselben Reihenfolge ein. Die Reihe wird länger, bis du zweimal bei derselben Länge danebenliegst.</p>',
+    start(ok) {
+      let len = 4, fails = 0, best = 3;
+      const round = () => {
+        const seq = []; while (seq.length < len) { const d = Math.floor(Math.random() * 10); if (d !== seq[seq.length - 1]) seq.push(d); }
+        body('<div class="digit" id="dg"></div><div class="muted small center">' + len + ' Ziffern</div>');
+        const show = i => {
+          if (i >= seq.length) { input(seq); return; }
+          $('dg').textContent = seq[i]; later(750, () => { $('dg').textContent = ''; later(250, () => show(i + 1)); });
+        };
+        later(600, () => show(0));
+      };
+      const input = seq => {
+        let typed = '';
+        body('<div class="digit" id="dg" style="font-size:44px;min-height:70px">&nbsp;</div><div class="keys">' +
+          [1, 2, 3, 4, 5, 6, 7, 8, 9, '⌫', 0].map(k => '<button data-k="' + k + '">' + k + '</button>').join('') + '</div>');
+        $('m-body').querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+          if (b.dataset.k === '⌫') typed = typed.slice(0, -1); else typed += b.dataset.k;
+          $('dg').textContent = typed || ' ';
+          if (typed.length < seq.length) return;
+          const right = typed === seq.join('');
+          $('dg').textContent = right ? '✓' : seq.join(' ');
+          if (right) { best = len; len++; fails = 0; } else fails++;
+          if (fails >= 2 || len > 10) later(900, () => ok({ span: best })); else later(900, round);
+        });
+      };
+      round();
+    } },
+  zittern: { name: 'Zittern', dur: 22,
+    intro: '<p>Strecke den Arm deiner Schreibhand nach vorn aus und lege das Handy flach auf die offene Handfläche. Nach dem hohen Ton 15 Sekunden so ruhig wie möglich halten, bis der tiefe Ton kommt.</p>',
+    start(ok, fail) { recordMotion(15, 'ruhig halten', S => { const r = analyzeSteady(S, 'zittern'); if (r) ok(r); else fail('Zu wenig Messdaten.'); }, fail); } },
+  balance: { name: 'Balance', dur: 36,
+    intro: '<p>Drücke das Handy mit beiden Händen fest an die Brust und stelle dich auf ein Bein, Augen offen, Blick auf einen festen Punkt. Nach dem hohen Ton 30 Sekunden stehen, bis der tiefe Ton kommt. Immer dasselbe Bein nehmen.</p>',
+    start(ok, fail) { recordMotion(30, 'auf einem Bein stehen', S => { const r = analyzeSteady(S, 'balance'); if (r) ok(r); else fail('Zu wenig Messdaten.'); }, fail); } },
+  sprung: { name: 'Sprung', dur: 20,
+    intro: '<p>Drücke das Handy mit beiden Händen fest an die Brust. Nach dem hohen Ton hast du 12 Sekunden für drei Sprünge aus dem Stand, so hoch wie möglich, mit gestreckten Beinen landen und dazwischen kurz ruhig stehen. Gewertet wird der höchste.</p><p class="muted small">Nur auf festem, freiem Boden. Bei Knie-, Rücken- oder Kreislaufproblemen auslassen.</p>',
+    note: r => r.alle.length + ' Sprünge erkannt: ' + r.alle.map(v => fmt(v, 1)).join(' · ') + ' cm',
+    start(ok, fail) {
+      recordMotion(12, 'dreimal springen', S => {
+        const mag = S.x.map((x, i) => Math.sqrt(x * x + S.y[i] * S.y[i] + S.z[i] * S.z[i])), all = analyzeJump(S.t, mag);
+        if (all.length) ok({ cm: Math.max.apply(null, all), alle: all }); else fail('Kein Sprung erkannt. Handy fest an die Brust drücken und deutlich abspringen.');
+      }, fail);
+    } },
+  atem: { name: 'Atmung', dur: 66,
+    intro: '<p>Lege dich auf den Rücken und das Handy mit dem Display nach oben auf den Bauch, etwa auf Höhe des Nabels. Nach dem hohen Ton 60 Sekunden ganz normal atmen, nicht steuern. Am Ende kommen ein tiefer Ton und eine Vibration.</p>',
+    note: r => r.breaths + ' Atemzüge erkannt · Unregelmäßigkeit ' + Math.round(r.cv * 100) + ' %',
+    start(ok, fail) { recordMotion(60, 'ruhig atmen', S => { const r = analyzeBreath(S); if (r) ok(r); else fail('Keine Atembewegung erkannt. Liegt das Handy flach auf dem Bauch?'); }, fail); } },
+};
+const TEST_ORDER = ['puls', 'reaktion', 'tapping', 'merken', 'zittern', 'sprung', 'balance', 'atem'];
+function drawTrace(cv, v) {
+  const k = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = cv.clientHeight || 90, c = cv.getContext('2d');
+  cv.width = W * k; cv.height = H * k; c.scale(k, k); c.clearRect(0, 0, W, H);
+  if (v.length < 2) return;
+  const lo = Math.min.apply(null, v), hi = Math.max.apply(null, v), sp = hi - lo || 1;
+  c.strokeStyle = '#3FB6A8'; c.lineWidth = 2; c.beginPath();
+  v.forEach((y, i) => { const X = i / (v.length - 1) * W, Y = H - 4 - (y - lo) / sp * (H - 8); if (i) c.lineTo(X, Y); else c.moveTo(X, Y); });
+  c.stroke();
+}
+
+// ---------------------------------------------------------------- Export
+function dayJson(d) {
+  const j = { datum: d.datum };
+  METRICS.forEach(m => { const v = val(d, m); if (v != null) j[m.json] = v; });
+  if (d.zeit) j.lab_zeit = d.zeit;
+  return j;
+}
+// Reine Formatfunktion: eine Zeile pro Messwert, darunter der Tag als JSON.
+function labText(d) {
+  const L = ['KOERPERLABOR ' + d.datum + ' (' + wdName(d.datum) + ')' + (d.zeit ? ' ' + d.zeit : '')];
+  METRICS.forEach(m => { const v = val(d, m); if (v != null) L.push(m.label + ': ' + v + ' ' + m.unit); });
+  if (d.puls && !(d.puls.quality >= MIN_QUALITY)) L.push('HRV: nicht gewertet (Signal ' + Math.round((d.puls.quality || 0) * 100) + ' %)');
+  if (d.reaktion && d.reaktion.fehl) L.push('Fehlstarts Reaktion: ' + d.reaktion.fehl);
+  return L.join('\n') + '\n\nKOERPERLABOR-JSON-START\n' + JSON.stringify(dayJson(d)) + '\nKOERPERLABOR-JSON-ENDE';
+}
+function copyText(text, done) {
+  if (NATIVE && NATIVE.copyText) { NATIVE.copyText(text); done(true); return; }
+  const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select(); let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  ta.remove();
+  if (!ok && navigator.clipboard) { navigator.clipboard.writeText(text).then(() => done(true), () => done(false)); return; }
+  done(ok);
+}
+function exportData() { return JSON.stringify({ app: 'koerperlabor', version: 1, exported: new Date().toISOString(), settings: db.settings, days: db.days }); }
+function importText(text) {
+  let d; try { d = JSON.parse(text); } catch (e) { return 'Kein gültiger Export (kein JSON).'; }
+  if (!d || d.app !== 'koerperlabor' || !d.days || typeof d.days !== 'object' || Array.isArray(d.days)) return 'Das ist kein Körper-Labor-Export.';
+  db.settings = Object.assign({}, DEFAULT_SETTINGS, d.settings || {}); db.days = d.days; migrate(); saveAll(); return null;
+}
+function openModal(html, init) { $('modal-in').innerHTML = html; $('modal').hidden = false; init && init($('modal-in')); }
+function closeModal() { $('modal').hidden = true; }
+$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+function exportDialog() {
+  const data = exportData(), name = 'koerperlabor-backup-' + today() + '.json';
+  openModal('<h3>Backup</h3><div class="muted small">' + Object.keys(db.days).length + ' Tage</div><button class="block primary" id="x-file">Als Datei speichern</button>' +
+    '<div id="x-msg" class="small" style="margin-top:6px"></div><textarea class="mono" id="x-ta" readonly style="margin-top:8px"></textarea>' +
+    '<div class="btns"><button class="ghost" id="x-x">Schließen</button><button id="x-copy">Kopieren</button></div>', m => {
+    $('x-ta').value = data; $('x-x').onclick = closeModal;
+    $('x-file').onclick = () => {
+      if (NATIVE && NATIVE.saveFile) { window.klFileSaved = ok => { const el = $('x-msg'); if (el) el.textContent = ok ? 'Gespeichert ✓' : 'Nicht gespeichert.'; }; NATIVE.saveFile(name, data); return; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+      a.download = name; document.body.appendChild(a); a.click(); a.remove(); $('x-msg').textContent = 'Download gestartet ✓';
+    };
+    $('x-copy').onclick = () => copyText(data, ok => { $('x-copy').textContent = ok ? 'Kopiert ✓' : 'Fehlgeschlagen'; });
+  });
+}
+function importDialog() {
+  openModal('<h3>Backup einspielen</h3><div class="small bad">Ersetzt alle Daten in der App.</div><button class="block" id="x-pick">Datei auswählen</button>' +
+    '<textarea class="mono" id="x-ta" placeholder="oder Text einfügen" style="margin-top:8px"></textarea><div id="x-msg" class="small bad"></div>' +
+    '<div class="btns"><button class="ghost" id="x-x">Abbrechen</button><button class="primary" id="x-ok">Einspielen</button></div>', m => {
+    const apply = text => { const err = importText(text); if (err) { $('x-msg').textContent = err; return; } closeModal(); render('settings'); };
+    $('x-x').onclick = closeModal; $('x-ok').onclick = () => apply($('x-ta').value);
+    $('x-pick').onclick = () => {
+      if (NATIVE && NATIVE.openFile) { window.klFileReady = () => apply(NATIVE.takePickedFile()); NATIVE.openFile(); return; }
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+      inp.onchange = () => { const f = inp.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => apply(String(r.result)); r.readAsText(f); };
+      inp.click();
+    };
+  });
+}
+
+// ---------------------------------------------------------------- Diagramm
+function drawChart(cv, pts, m) {
+  const k = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = cv.clientHeight || 130, c = cv.getContext('2d');
+  cv.width = W * k; cv.height = H * k; c.scale(k, k); c.clearRect(0, 0, W, H);
+  c.font = '11px system-ui, sans-serif'; c.fillStyle = '#93A0AF';
+  let x0 = Math.min.apply(null, pts.map(p => p.x)), x1 = Math.max.apply(null, pts.map(p => p.x));
+  let y0 = Math.min.apply(null, pts.map(p => p.y)), y1 = Math.max.apply(null, pts.map(p => p.y));
+  if (x0 === x1) { x0 -= 43200000; x1 += 43200000; }
+  const pad = (y1 - y0) * 0.15 || Math.abs(y1) * 0.1 || 1; y0 -= pad; y1 += pad;
+  const L = 44, R = 10, T = 8, B = 18, X = x => L + (x - x0) / (x1 - x0) * (W - L - R), Y = y => T + (y1 - y) / (y1 - y0) * (H - T - B);
+  c.strokeStyle = '#2A3441'; c.lineWidth = 1; c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (let i = 0; i <= 2; i++) { const v = y0 + (y1 - y0) * i / 2, yy = Y(v); c.beginPath(); c.moveTo(L, yy); c.lineTo(W - R, yy); c.stroke(); c.fillText(fmt(v, m.d), L - 6, yy); }
+  c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillText(dShort(dstr(new Date(x0))), L, H - 3);
+  c.textAlign = 'right'; c.fillText(dShort(dstr(new Date(x1))), W - R, H - 3);
+  c.strokeStyle = c.fillStyle = '#3FB6A8'; c.lineWidth = 2; c.beginPath();
+  pts.forEach((p, i) => { if (i) c.lineTo(X(p.x), Y(p.y)); else c.moveTo(X(p.x), Y(p.y)); }); c.stroke();
+  pts.forEach(p => { c.beginPath(); c.arc(X(p.x), Y(p.y), 3, 0, 2 * Math.PI); c.fill(); });
+}
+
+// ---------------------------------------------------------------- Ansichten
+const view = $('view'), VIEWS = {};
+const TITLES = { home: 'Körper-Labor', done: 'Ergebnis', history: 'Verlauf', settings: 'Einstellungen', check: 'Gerätecheck', info: 'Was wird gemessen?' };
+function dayHtml(d) {
+  const rows = METRICS.map(m => {
+    const v = val(d, m); if (v == null) return '';
+    const b = baseline(m, db.days, d.datum);
+    return '<div class="item"><div class="grow">' + m.label + (b != null ? '<div class="muted small">dein Schnitt ' + fmt(b, m.d) + '</div>' : '') + '</div><b>' + fmt(v, m.d) + ' ' + m.unit + '</b></div>';
+  }).join('');
+  return rows || '<div class="muted small">Noch keine Messung.</div>';
+}
+function copyCard(d) {
+  return '<button class="block primary" id="c-copy">Für Health-OS kopieren</button><div class="muted small" style="margin-top:6px">Danach in der Claude-App den Health-OS-Chat öffnen und einfügen.</div><button class="block" id="c-share">Teilen …</button>';
+}
+function bindCopy(d) {
+  $('c-copy').onclick = () => copyText(labText(d), ok => { $('c-copy').textContent = ok ? 'Kopiert ✓ Jetzt im Health-OS-Chat einfügen' : 'Kopieren fehlgeschlagen'; });
+  $('c-share').onclick = () => { if (NATIVE && NATIVE.shareText) { NATIVE.shareText(labText(d)); $('c-share').textContent = 'Teilen-Menü geöffnet'; } else copyText(labText(d), ok => { $('c-share').textContent = ok ? 'Kopiert ✓' : 'Fehlgeschlagen'; }); };
+}
+VIEWS.home = () => {
+  const s = db.settings, d = db.days[today()], secs = s.check.reduce((a, id) => a + TESTS[id].dur, 0);
+  let h = '';
+  if (!saveOk) h += '<div class="card small bad">Speichern ist fehlgeschlagen. Bitte in den Einstellungen ein Backup kopieren.</div>';
+  if (window.KL_TEST) h += '<div class="card small" id="selftest">Selbsttest: ' + KL_TEST.ok + ' OK, ' + KL_TEST.fail + ' Fehler</div>';
+  h += '<div class="card"><h2>Morgen-Check</h2><div class="muted small">' + s.check.map(id => TESTS[id].name).join(' · ') + ' · etwa ' + Math.round(secs / 60 * 2) / 2 + ' min</div>' +
+    '<button class="block primary" id="h-check">' + (d ? 'Noch einmal messen' : 'Morgen-Check starten') + '</button></div>';
+  h += '<div class="card"><h2>Heute' + (d && d.zeit ? ' · ' + d.zeit : '') + '</h2>' + dayHtml(d || { datum: today() }) + (d ? copyCard(d) : '') + '</div>';
+  h += '<div class="card"><h2>Einzeltests</h2><div class="grid">' + TEST_ORDER.map(id => '<button data-t="' + id + '">' + TESTS[id].name + '<span>' + TESTS[id].dur + ' s</span></button>').join('') + '</div></div>';
+  h += '<div class="row"><button class="grow" id="h-hist">Verlauf</button><button class="grow" id="h-info">Info</button><button class="grow" id="h-set">Mehr</button></div>';
+  view.innerHTML = h;
+  $('h-check').onclick = () => startRun(TEST_ORDER.filter(id => s.check.indexOf(id) >= 0));
+  view.querySelectorAll('[data-t]').forEach(b => b.onclick = () => startRun([b.dataset.t]));
+  $('h-hist').onclick = () => go('history'); $('h-info').onclick = () => go('info'); $('h-set').onclick = () => go('settings');
+  if (d) bindCopy(d);
+};
+VIEWS.done = () => {
+  const d = db.days[today()]; if (!d) { render('home'); return; }
+  view.innerHTML = '<div class="card"><h2>Heute · ' + (d.zeit || '') + '</h2>' + dayHtml(d) + '</div>' + copyCard(d) + '<button class="block" id="d-home">Fertig</button>';
+  bindCopy(d); $('d-home').onclick = () => history.back();
+};
+VIEWS.history = () => {
+  const dates = Object.keys(db.days).sort();
+  const charts = METRICS.map((m, i) => ({ m, i, pts: dates.map(dt => ({ x: new Date(dt + 'T12:00').getTime(), y: val(db.days[dt], m) })).filter(p => p.y != null) })).filter(c => c.pts.length);
+  view.innerHTML = charts.length ? charts.map(c => '<div class="card"><h2>' + c.m.label + ' (' + c.m.unit + ')</h2><canvas class="chart" id="ch' + c.i + '"></canvas></div>').join('')
+    : '<div class="card muted small">Noch keine Messungen.</div>';
+  charts.forEach(c => drawChart($('ch' + c.i), c.pts, c.m));
+};
+VIEWS.settings = () => {
+  const s = db.settings;
+  view.innerHTML = '<div class="card"><h2>Tests im Morgen-Check</h2>' + TEST_ORDER.map(id =>
+    '<label class="c"><input type="checkbox" data-c="' + id + '"' + (s.check.indexOf(id) >= 0 ? ' checked' : '') + '> ' + TESTS[id].name + ' <span class="muted small">' + TESTS[id].dur + ' s</span></label>').join('') + '</div>' +
+    '<div class="card"><h2>Allgemein</h2><label class="c"><input type="checkbox" id="s-snd"' + (s.sound ? ' checked' : '') + '> Töne</label>' +
+    '<button class="block" id="s-check">Gerätecheck (Sensoren prüfen)</button></div>' +
+    '<div class="card"><h2>Daten</h2><div class="row"><button class="grow" id="s-exp">Backup</button><button class="grow" id="s-imp">Einspielen</button></div></div>' +
+    '<div class="muted small">Körper-Labor v1.0 · kein Medizinprodukt</div>';
+  view.querySelectorAll('[data-c]').forEach(c => c.onchange = () => {
+    s.check = TEST_ORDER.filter(id => view.querySelector('[data-c="' + id + '"]').checked); store(K.set, s);
+  });
+  $('s-snd').onchange = e => { s.sound = e.target.checked; store(K.set, s); };
+  $('s-check').onclick = () => go('check'); $('s-exp').onclick = exportDialog; $('s-imp').onclick = importDialog;
+};
+// Zeigt, welche Sensoren in dieser Umgebung wirklich Daten liefern.
+let checkStop = null;
+VIEWS.check = () => {
+  view.innerHTML = '<div class="card"><h2>Bewegungssensor</h2><div id="k-mot" class="small">wird geprüft …</div></div>' +
+    '<div class="card"><h2>Kamera und Blitz</h2><div id="k-cam" class="small muted">Noch nicht geprüft.</div><button class="block" id="k-go">Kamera prüfen</button></div>';
+  const rec = motionRecorder(); let cam = null;
+  checkStop = () => { rec.stop(); if (cam) cam.close(); checkStop = null; };
+  setTimeout(() => {
+    rec.stop(); const S = rec.S, el = $('k-mot'); if (!el) return;
+    if (S.t.length < 5) { el.innerHTML = '<span class="bad">Keine Daten.</span> Atmung, Sprung, Zittern und Balance funktionieren hier nicht.'; return; }
+    const hz = (S.t.length - 1) / (S.t[S.t.length - 1] - S.t[0]), i = S.t.length - 1;
+    el.innerHTML = '<span class="good">OK</span> · ' + Math.round(hz) + ' Werte pro Sekunde · Betrag ' + fmt(Math.sqrt(S.x[i] * S.x[i] + S.y[i] * S.y[i] + S.z[i] * S.z[i]), 2) + ' m/s² (ruhig liegend etwa 9,81)';
+  }, 2000);
+  $('k-go').onclick = () => {
+    const el = $('k-cam'); el.textContent = 'Kamera startet …';
+    Cam.open().then(c => {
+      cam = c; let last = [0, 0, 0];
+      c.onFrame = (t, r, g, b) => { last = [r, g, b]; };
+      setTimeout(() => {
+        const fps = c.frames / 3, st = c.settings || {}; c.close(); cam = null; if (!$('k-cam')) return;
+        $('k-cam').innerHTML = (fps > 5 ? '<span class="good">OK</span>' : '<span class="bad">Zu wenige Bilder</span>') + ' · ' + Math.round(fps) + ' Bilder pro Sekunde · ' + (st.width || '?') + '×' + (st.height || '?') +
+          '<br>Blitz: ' + (c.torch ? '<span class="good">an</span>' : '<span class="bad">ließ sich nicht einschalten</span>') + '<br>Helligkeit R/G/B: ' + last.map(v => Math.round(v)).join(' / ');
+      }, 3000);
+    }).catch(e => { el.innerHTML = '<span class="bad">Nicht verfügbar:</span> ' + esc(e && (e.message || e.name) || 'unbekannter Fehler'); });
+  };
+};
+VIEWS.info = () => {
+  view.innerHTML = '<div class="card"><h2>Die Tests</h2><ul class="small">' +
+    '<li><b>Puls & HRV:</b> Die Kamera sieht, wie sich die Fingerkuppe mit jedem Herzschlag minimal verfärbt. Daraus kommen Puls und die Schwankung von Schlag zu Schlag (RMSSD).</li>' +
+    '<li><b>Reaktion, Tapping, Zahlen merken:</b> drei kurze Kopf-Tests. Sie reagieren auf Schlafmangel und Tagesform.</li>' +
+    '<li><b>Zittern, Balance:</b> Der Bewegungssensor misst, wie ruhig du das Handy hältst oder stehst.</li>' +
+    '<li><b>Sprung:</b> Aus der Flugzeit ergibt sich die Sprunghöhe. Sie gilt im Sport als Marker für die Tagesform der Beine.</li>' +
+    '<li><b>Atmung:</b> Das Handy auf dem Bauch zählt die Atemzüge.</li></ul></div>' +
+    '<div class="card"><h2>Ehrliche Einordnung</h2><ul class="small">' +
+    '<li>Vergleiche nur dich mit dir, zur gleichen Tageszeit und unter gleichen Bedingungen. Der eigene Schnitt erscheint ab drei früheren Messungen.</li>' +
+    '<li>Die HRV aus der Kamera ist grob: Die Kamera macht nur etwa 30 Bilder pro Sekunde. Ein Brustgurt oder dein Oura-Ring misst genauer. Bei unruhigem Signal wird sie gar nicht gewertet.</li>' +
+    '<li>Die Sprunghöhe ist auf wenige Zentimeter genau, wenn das Handy fest am Körper bleibt.</li>' +
+    '<li>Zittern und Balance sind Werte ohne Normbereich. Nur dein eigener Verlauf zählt.</li>' +
+    '<li>Kein Medizinprodukt. Auffälliger Puls, Herzstolpern, Schwindel oder neues starkes Zittern gehören zum Arzt, nicht in diese App.</li></ul></div>';
+};
+function render(name) {
+  if (checkStop) checkStop();
+  if (!VIEWS[name]) name = 'home';
+  $('title').textContent = TITLES[name]; $('back').style.visibility = name === 'home' ? 'hidden' : 'visible';
+  VIEWS[name](); window.scrollTo(0, 0);
+}
+function go(name) { location.hash = name; }
+function route() {
+  const h = (location.hash || '#home').slice(1);
+  if (RUN.active && h !== 'run') abortRun();
+  if (h === 'run') { if (!RUN.active) { history.replaceState(null, '', '#home'); render('home'); } return; }
+  render(h);
+}
+$('back').onclick = () => history.back();
+window.addEventListener('hashchange', route);
+
+// ---------------------------------------------------------------- Selbsttest
+function klTests() {
+  let ok = 0, fail = 0;
+  const t = (name, cond, info) => { if (cond) { ok++; console.log('OK   ' + name + (info !== undefined ? ' (' + info + ')' : '')); } else { fail++; console.error('FAIL ' + name + (info !== undefined ? ' -> ' + info : '')); } };
+  let seed = 4711; const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let x = Math.imul(seed ^ seed >>> 15, 1 | seed); x = x + Math.imul(x ^ x >>> 7, 61 | x) ^ x; return ((x ^ x >>> 14) >>> 0) / 4294967296; };
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+  t('movAvg glaettet Konstante nicht', Array.from(movAvg([5, 5, 5, 5, 5], 3)).every(v => v === 5));
+  t('resample: Gerade bleibt Gerade', near(resample([0, 0.5, 1, 2], [0, 5, 10, 20], 10)[7], 7, 1e-9));
+  t('median', median([3, 1, 2]) === 2 && median([4, 1, 3, 2]) === 2.5);
+
+  // Puls: kuenstliches Kamerasignal mit bekannten Schlagabstaenden, ~30 Bilder/s mit Jitter
+  const ppg = (ibiFn, sec, noise) => {
+    const beats = []; let tb = 0.4; while (tb < sec + 1) { beats.push(tb); tb += ibiFn(tb); }
+    const ts = [], vs = []; let tt = 0;
+    while (tt < sec) {
+      let v = 200 + 3 * Math.sin(tt * 0.3) + (rnd() - 0.5) * noise;
+      for (let i = 0; i < beats.length; i++) { const d = tt - beats[i]; if (d > -0.5 && d < 0.5) v -= 2.5 * Math.exp(-d * d / (2 * 0.07 * 0.07)); }
+      ts.push(tt); vs.push(v); tt += 1 / 30 + (rnd() - 0.5) * 0.004;
+    }
+    const ib = []; for (let i = 1; i < beats.length; i++) ib.push(beats[i] - beats[i - 1]);
+    let s = 0; for (let i = 1; i < ib.length; i++) s += (ib[i] - ib[i - 1]) * (ib[i] - ib[i - 1]);
+    return { ts, vs, rmssd: Math.sqrt(s / (ib.length - 1)) * 1000 };
+  };
+  let P = ppg(() => 60 / 72, 60, 0.4), A = analyzePPG(P.ts, P.vs, 4);
+  t('Puls 72 erkannt', A && near(A.hr, 72, 0.7), A && A.hr.toFixed(2));
+  t('Puls 72: Signalqualitaet', A && A.quality > 0.95, A && A.quality);
+  t('HRV-Grundrauschen bei gleichmaessigem Puls unter 12 ms', A && A.rmssd < 12, A && A.rmssd.toFixed(1));
+  P = ppg(tb => 1.0 + 0.06 * Math.sin(2 * Math.PI * 0.1 * tb), 60, 0.4); A = analyzePPG(P.ts, P.vs, 4);
+  t('Puls 60 mit Atemschwankung', A && near(A.hr, 60, 1.2), A && A.hr.toFixed(2));
+  t('HRV liegt in der Naehe des wahren Werts', A && near(A.rmssd, P.rmssd, 10), A && (A.rmssd.toFixed(1) + ' statt ' + P.rmssd.toFixed(1)));
+  P = ppg(() => 60 / 110, 40, 0.4); A = analyzePPG(P.ts, P.vs, 4);
+  t('Puls 110 erkannt', A && near(A.hr, 110, 1.5), A && A.hr.toFixed(2));
+  const noiseT = [], noiseV = []; for (let i = 0; i < 1500; i++) { noiseT.push(i / 30); noiseV.push(200 + (rnd() - 0.5) * 2); }
+  A = analyzePPG(noiseT, noiseV, 0);
+  t('reines Rauschen: kein brauchbares Signal', !A || A.quality < MIN_QUALITY, A && A.quality);
+  t('zu kurze Messung liefert nichts', analyzePPG([0, 1, 2], [1, 2, 3], 0) === null);
+
+  // Sprung: stehen, abdruecken, 0,4 s Flug, landen
+  const jump = T => {
+    const ts = [], mag = [];
+    for (let i = 0; i < 300; i++) {
+      const tt = i / 60, a = tt < 1 ? 9.81 : tt < 1.2 ? 22 : tt < 1.2 + T ? 0.4 : tt < 1.35 + T ? 30 : 9.81;
+      ts.push(tt); mag.push(a + (rnd() - 0.5) * 0.3);
+    }
+    return analyzeJump(ts, mag);
+  };
+  let J = jump(0.4); t('Sprung 0,4 s Flug = etwa 19,6 cm', J.length === 1 && near(J[0], 19.6, 2.5), J.join());
+  J = jump(0.55); t('Sprung 0,55 s Flug = etwa 37 cm', J.length === 1 && near(J[0], 37.1, 3.5), J.join());
+  const still = []; const stT = []; for (let i = 0; i < 300; i++) { stT.push(i / 60); still.push(9.81 + (rnd() - 0.5) * 0.5); }
+  t('Stehen ist kein Sprung', analyzeJump(stT, still).length === 0);
+
+  // Atmung, Zittern, Balance
+  const mot = (sec, fx) => { const S = { t: [], x: [], y: [], z: [] }; for (let i = 0; i < sec * 60; i++) { const tt = i / 60; S.t.push(tt); S.x.push(fx(tt) + (rnd() - 0.5) * 0.03); S.y.push((rnd() - 0.5) * 0.03); S.z.push(9.81 + (rnd() - 0.5) * 0.03); } return S; };
+  let B = analyzeBreath(mot(60, tt => 0.3 * Math.sin(2 * Math.PI * 0.2 * tt)));
+  t('Atmung 12 pro Minute', B && near(B.bpm, 12, 0.5), B && B.bpm);
+  t('gleichmaessige Atmung: kleine Unregelmaessigkeit', B && B.cv < 0.1, B && B.cv);
+  B = analyzeBreath(mot(60, tt => 0.3 * Math.sin(2 * Math.PI * 0.1 * tt)));
+  t('Atmung 6 pro Minute', B && near(B.bpm, 6, 0.4), B && B.bpm);
+  let Z = analyzeSteady(mot(15, tt => 0.2 * Math.sin(2 * Math.PI * 8 * tt)), 'zittern');
+  t('Zittern 8 Hz: etwa 14,5 mg', Z && near(Z.mg, 14.5, 2), Z && Z.mg);
+  const quiet = analyzeSteady(mot(15, () => 0), 'zittern');
+  t('ruhiges Handy: unter 3 mg', quiet && quiet.mg < 3, quiet && quiet.mg);
+  Z = analyzeSteady(mot(30, tt => 0.3 * Math.sin(2 * Math.PI * 0.5 * tt)), 'balance');
+  t('Schwanken 0,5 Hz: etwa 21 mg', Z && near(Z.mg, 21.3, 2.5), Z && Z.mg);
+  Z = analyzeSteady(mot(30, tt => 0.2 * Math.sin(2 * Math.PI * 8 * tt)), 'balance');
+  t('Balance blendet schnelles Zittern weitgehend aus', Z && Z.mg < 6, Z && Z.mg);
+
+  // Werte, Schnitt, Export
+  const days = {}; ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].forEach((d, i) => { days[d] = { datum: d, reaktion: { ms: 280 + i * 10, fehl: 0 }, puls: { hr: 60, rmssd: 40, quality: i === 0 ? 0.3 : 0.9 } }; });
+  t('Schnitt = Median frueherer Tage', baseline(METRICS[2], days, '2026-11-14') === 295);
+  t('Schnitt erst ab 3 Werten', baseline(METRICS[2], days, '2026-11-12') === null);
+  t('HRV bei schlechtem Signal zaehlt nicht', val(days['2026-11-10'], METRICS[1]) === null && val(days['2026-11-11'], METRICS[1]) === 40);
+  const day = { datum: '2026-11-14', zeit: '06:40', puls: { hr: 58.4, rmssd: 42, quality: 0.93 }, reaktion: { ms: 285, fehl: 1 }, sprung: { cm: 24.5, alle: [22, 24.5] } };
+  const txt = labText(day);
+  t('Text: Kopfzeile', txt.startsWith('KOERPERLABOR 2026-11-14 (Sa) 06:40\nPuls: 58.4 /min\nHRV (RMSSD): 42 ms\nReaktion: 285 ms'), txt);
+  t('Text: Sprung und Fehlstart', txt.includes('Sprung: 24.5 cm') && txt.includes('Fehlstarts Reaktion: 1'));
+  let j = null; try { j = JSON.parse(txt.split('KOERPERLABOR-JSON-START\n')[1].split('\nKOERPERLABOR-JSON-ENDE')[0]); } catch (x) {}
+  t('Text: JSON mit lab_-Feldern', j && j.lab_puls === 58.4 && j.lab_rmssd === 42 && j.lab_reaktion_ms === 285 && j.lab_sprung_cm === 24.5 && j.lab_zeit === '06:40' && !('lab_atem' in j));
+  const bad = labText({ datum: '2026-11-14', puls: { hr: 70, rmssd: 90, quality: 0.4 } });
+  t('Text: HRV bei schlechtem Signal nicht im Export', bad.includes('HRV: nicht gewertet') && bad.indexOf('lab_rmssd') < 0);
+  t('Import lehnt Fremddaten ab', importText('{"app":"healthlog","days":{}}') !== null && importText('x') !== null);
+  console.log('Selbsttest: ' + ok + ' OK, ' + fail + ' Fehler');
+  return { ok, fail };
+}
+window.klTests = klTests;
+if (/[?&]debug=1/.test(location.search)) window.KL_TEST = klTests();
+route();
+</script>
+</body>
+</html>

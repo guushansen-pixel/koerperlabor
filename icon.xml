@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher-Icon fuer das Koerper-Labor: eine Pulskurve (EKG-Zacke) quer
+     durch einen Ring. 108x108, Motiv innerhalb von Radius 31 um die Mitte
+     (54,54), damit die runde Launcher-Maske nichts abschneidet.
+     Hintergrundfarbe kommt per -IconBackground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Ring -->
+    <path android:fillColor="#2A3441"
+        android:pathData="M54,24 a30,30 0 1 0 0,60 a30,30 0 1 0 0,-60 z M54,29 a25,25 0 1 1 0,50 a25,25 0 1 1 0,-50 z" />
+
+    <!-- Pulskurve -->
+    <path android:fillColor="#3FB6A8"
+        android:pathData="M25,52 h17 l4,-9 l5,22 l6,-31 l5,26 l3,-8 h18 v5 h-15 l-7,17 l-5,-25 l-5,26 l-6,-27 l-1,9 h-19 z" />
+</vector>
