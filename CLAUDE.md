@@ -82,3 +82,10 @@ auszuliefern (sicherer Kontext), nicht die Tests umzubauen.
 Bewusst noch nicht gebaut: Resonanzfrequenz-Suche mit Atemführung
 (ursprüngliche Idee 2). Sie setzt voraus, dass die HRV-Messung am Gerät
 brauchbar ist.
+
+v1.1 (code 2, 2026-11-16): Wach-Check auf Daniels Wunsch (`TESTS.wach`,
+`pvtStats`, `LAPSE_MS` = 500, `WACH_SEC` als `let`, damit er sich im Browser
+abkürzen lässt). Zwei neue Messgrößen, im Skill ergänzt. Abweichung von der
+üblichen 3-Minuten-Form des PVT: Aussetzer-Schwelle 500 ms statt 355 ms,
+weil ein Touchscreen selbst Verzögerung mitbringt. Selbsttest 34/34, im
+Browser mit verkürzter Dauer durchgespielt. APK `dist/koerperlabor-1.1.apk`.

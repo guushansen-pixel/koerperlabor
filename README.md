@@ -8,7 +8,7 @@ für Daniels Health-OS-Chat.
 **Kein Medizinprodukt. Die Messgenauigkeit am Gerät ist nicht validiert**;
 alle Werte sind für den Vergleich mit sich selbst über die Zeit gedacht.
 
-APK: [dist/koerperlabor-1.0.apk](dist/koerperlabor-1.0.apk)
+APK: [dist/koerperlabor-1.1.apk](dist/koerperlabor-1.1.apk)
 
 ## Tests
 
@@ -16,6 +16,7 @@ APK: [dist/koerperlabor-1.0.apk](dist/koerperlabor-1.0.apk)
 |---|---|---|---|---|
 | Puls & HRV | Rückkamera + Blitz | 60 s | Puls /min, RMSSD ms | Mittlere Helligkeit je Bild (Rot und Grün), auf 30 Hz, Trend über 1 s abgezogen, Gipfel mit Parabel-Verfeinerung, Schlagabstände ±25 % um den Median |
 | Reaktion | Touch | ~30 s | Median in ms | 6 Durchgänge, der erste zählt nicht, zufällige Wartezeit 1,5–4 s |
+| Wach-Check | Touch | 3 min | Median in ms, Aussetzer | wie der Vigilanztest der Schlafforschung (PVT) in Kurzform: Reiz nach 1–4 s, laufender Zähler; Aussetzer = Reaktion ab 500 ms oder nach 3 s verpasst; nicht im Standard-Check |
 | Tapping | Touch | 10 s | Tipps pro Sekunde | ab dem ersten Tipp |
 | Zahlen merken | Touch | ~70 s | Ziffernspanne | ab 4 Ziffern, Ende nach zwei Fehlern bei einer Länge |
 | Zittern | Beschleunigung | 15 s | Milli-g | Anteile ab etwa 3 Hz (Signal minus 0,26-s-Mittel), RMS über alle Achsen |
@@ -62,7 +63,8 @@ KOERPERLABOR-JSON-ENDE
 ```
 
 Felder: `lab_puls`, `lab_rmssd`, `lab_reaktion_ms`, `lab_tapping`,
-`lab_merken`, `lab_zittern_mg`, `lab_balance_mg`, `lab_sprung_cm`,
+`lab_wach_ms`, `lab_wach_aussetzer`, `lab_merken`, `lab_zittern_mg`,
+`lab_balance_mg`, `lab_sprung_cm`,
 `lab_atem`, `lab_zeit`. Das Format ist eine Schnittstelle zum Skill
 `health-os-debrief` (Abschnitt "Morgen-Check: Körper-Labor-App").
 

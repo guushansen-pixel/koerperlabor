@@ -108,6 +108,8 @@ const METRICS = [
   { k: 'puls', f: 'hr', label: 'Puls', unit: '/min', d: 0, json: 'lab_puls' },
   { k: 'puls', f: 'rmssd', label: 'HRV (RMSSD)', unit: 'ms', d: 0, json: 'lab_rmssd' },
   { k: 'reaktion', f: 'ms', label: 'Reaktion', unit: 'ms', d: 0, json: 'lab_reaktion_ms' },
+  { k: 'wach', f: 'ms', label: 'Wach-Check Reaktion', unit: 'ms', d: 0, json: 'lab_wach_ms' },
+  { k: 'wach', f: 'lapses', label: 'Wach-Check Aussetzer', unit: 'mal', d: 0, json: 'lab_wach_aussetzer' },
   { k: 'tapping', f: 'tps', label: 'Tapping', unit: '/s', d: 1, json: 'lab_tapping' },
   { k: 'merken', f: 'span', label: 'Zahlen merken', unit: 'Ziffern', d: 0, json: 'lab_merken' },
   { k: 'zittern', f: 'mg', label: 'Zittern', unit: 'mg', d: 1, json: 'lab_zittern_mg' },
@@ -233,6 +235,15 @@ function analyzeSteady(S, mode) {
   let s = 0, c = 0;
   for (let i = HZ; i < n - HZ; i++) { s += f[0][i] * f[0][i] + f[1][i] * f[1][i] + f[2][i] * f[2][i]; c++; }
   return { mg: Math.round(Math.sqrt(s / c) / 9.81 * 1000 * 10) / 10 };
+}
+
+// Wach-Check (Daueraufmerksamkeit): aus den Reaktionszeiten den Median, die Zahl der
+// Aussetzer (ab LAPSE_MS, verpasste Reize zaehlen mit) und das langsamste Zehntel.
+const LAPSE_MS = 500;
+function pvtStats(rts) {
+  if (rts.length < 5) return null;
+  const s = Array.from(rts).sort((a, b) => a - b), k = Math.max(1, Math.round(s.length / 10));
+  return { ms: Math.round(median(s)), lapses: s.filter(v => v >= LAPSE_MS).length, n: s.length, slow: Math.round(mean(s.slice(-k))) };
 }
 
 // ---------------------------------------------------------------- Ton / Vibration
@@ -382,6 +393,7 @@ function recordMotion(sec, hint, ok, fail) {
 }
 
 const PULS_SEC = 60, PULS_SKIP = 4;
+let WACH_SEC = 180;       // veraenderbar, damit sich der Test im Browser abkuerzen laesst
 const TESTS = {
   puls: { name: 'Puls & HRV', dur: 65,
     intro: '<p>Lege eine Fingerkuppe locker auf die Hauptkamera und den Blitz auf der Rückseite, sodass beide bedeckt sind. Nicht fest drücken. Hand ablegen, ruhig sitzen, normal atmen. Die Messung dauert 60 Sekunden und startet, sobald der Finger erkannt ist.</p>',
@@ -431,6 +443,36 @@ const TESTS = {
         if (state !== 'go') return;
         rts.push(now - t0); state = 'pause'; pad.className = 'pad'; pad.textContent = Math.round(now - t0) + ' ms';
         if (rts.length >= 6) later(500, () => ok({ ms: Math.round(median(rts.slice(1))), fehl })); else later(600, arm);
+      });
+      arm();
+    } },
+  // Wie der Vigilanztest der Schlafforschung (PVT) in der 3-Minuten-Form: in unregelmaessigen
+  // Abstaenden erscheint ein laufender Zaehler, sofort tippen. Muedigkeit zeigt sich weniger
+  // im Mittel als in einzelnen Aussetzern.
+  wach: { name: 'Wach-Check', dur: 185,
+    intro: '<p>Drei Minuten Daueraufmerksamkeit. In unregelmäßigen Abständen beginnt auf der Fläche ein Zähler zu laufen: tippe dann sofort. Dazwischen passiert nichts, und genau das macht es schwer. Handy auf den Tisch, immer dieselbe Hand.</p><p class="muted small">Müdigkeit zeigt sich hier vor allem in einzelnen Aussetzern, nicht im Durchschnitt.</p>',
+    note: r => r.n + ' Reaktionen · langsamstes Zehntel ' + r.slow + ' ms' + (r.fehl ? ' · ' + r.fehl + '-mal zu früh' : ''),
+    start(ok, fail) {
+      const T0 = performance.now(), rts = []; let fehl = 0, state = 'wait', t0 = 0, timer = 0;
+      body('<div class="pad" id="pad"></div><div class="bar"><i id="r-bar"></i></div>');
+      const pad = $('pad');
+      const arm = () => {
+        if (performance.now() - T0 >= WACH_SEC * 1000) { clearInterval(iv); const s = pvtStats(rts); if (s) ok(Object.assign(s, { fehl })); else fail('Zu wenige Reaktionen für eine Auswertung.'); return; }
+        state = 'wait'; pad.className = 'pad'; pad.textContent = '';
+        timer = later(1000 + Math.random() * 3000, () => { state = 'go'; t0 = performance.now(); pad.className = 'pad go'; pad.textContent = '0'; });
+      };
+      const iv = setInterval(() => {
+        const now = performance.now(), bar = $('r-bar'); if (bar) bar.style.width = Math.min(100, (now - T0) / (WACH_SEC * 10)) + '%';
+        if (state !== 'go') return;
+        if (now - t0 > 3000) { rts.push(3000); state = 'pause'; pad.className = 'pad err'; pad.textContent = 'verpasst'; later(700, arm); return; }
+        pad.textContent = Math.round(now - t0);
+      }, 33);
+      cleanup(() => clearInterval(iv));
+      pad.addEventListener('pointerdown', e => {
+        e.preventDefault(); const now = performance.now();
+        if (state === 'wait') { clearTimeout(timer); fehl++; state = 'pause'; pad.className = 'pad err'; pad.textContent = 'zu früh'; later(800, arm); return; }
+        if (state !== 'go') return;
+        rts.push(now - t0); state = 'pause'; pad.className = 'pad'; pad.textContent = Math.round(now - t0) + ' ms'; later(600, arm);
       });
       arm();
     } },
@@ -491,7 +533,7 @@ const TESTS = {
     note: r => r.breaths + ' Atemzüge erkannt · Unregelmäßigkeit ' + Math.round(r.cv * 100) + ' %',
     start(ok, fail) { recordMotion(60, 'ruhig atmen', S => { const r = analyzeBreath(S); if (r) ok(r); else fail('Keine Atembewegung erkannt. Liegt das Handy flach auf dem Bauch?'); }, fail); } },
 };
-const TEST_ORDER = ['puls', 'reaktion', 'tapping', 'merken', 'zittern', 'sprung', 'balance', 'atem'];
+const TEST_ORDER = ['puls', 'reaktion', 'wach', 'tapping', 'merken', 'zittern', 'sprung', 'balance', 'atem'];
 function drawTrace(cv, v) {
   const k = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = cv.clientHeight || 90, c = cv.getContext('2d');
   cv.width = W * k; cv.height = H * k; c.scale(k, k); c.clearRect(0, 0, W, H);
@@ -636,7 +678,7 @@ VIEWS.settings = () => {
     '<div class="card"><h2>Allgemein</h2><label class="c"><input type="checkbox" id="s-snd"' + (s.sound ? ' checked' : '') + '> Töne</label>' +
     '<button class="block" id="s-check">Gerätecheck (Sensoren prüfen)</button></div>' +
     '<div class="card"><h2>Daten</h2><div class="row"><button class="grow" id="s-exp">Backup</button><button class="grow" id="s-imp">Einspielen</button></div></div>' +
-    '<div class="muted small">Körper-Labor v1.0 · kein Medizinprodukt</div>';
+    '<div class="muted small">Körper-Labor v1.1 · kein Medizinprodukt</div>';
   view.querySelectorAll('[data-c]').forEach(c => c.onchange = () => {
     s.check = TEST_ORDER.filter(id => view.querySelector('[data-c="' + id + '"]').checked); store(K.set, s);
   });
@@ -673,6 +715,7 @@ VIEWS.info = () => {
   view.innerHTML = '<div class="card"><h2>Die Tests</h2><ul class="small">' +
     '<li><b>Puls & HRV:</b> Die Kamera sieht, wie sich die Fingerkuppe mit jedem Herzschlag minimal verfärbt. Daraus kommen Puls und die Schwankung von Schlag zu Schlag (RMSSD).</li>' +
     '<li><b>Reaktion, Tapping, Zahlen merken:</b> drei kurze Kopf-Tests. Sie reagieren auf Schlafmangel und Tagesform.</li>' +
+    '<li><b>Wach-Check:</b> drei Minuten lang auf seltene Reize reagieren. Der Test stammt aus der Schlafforschung und reagiert empfindlicher auf Schlafmangel als die kurze Reaktionsmessung. Gezählt werden vor allem Aussetzer (langsamer als eine halbe Sekunde).</li>' +
     '<li><b>Zittern, Balance:</b> Der Bewegungssensor misst, wie ruhig du das Handy hältst oder stehst.</li>' +
     '<li><b>Sprung:</b> Aus der Flugzeit ergibt sich die Sprunghöhe. Sie gilt im Sport als Marker für die Tagesform der Beine.</li>' +
     '<li><b>Atmung:</b> Das Handy auf dem Bauch zählt die Atemzüge.</li></ul></div>' +
@@ -766,6 +809,15 @@ function klTests() {
   t('Schwanken 0,5 Hz: etwa 21 mg', Z && near(Z.mg, 21.3, 2.5), Z && Z.mg);
   Z = analyzeSteady(mot(30, tt => 0.2 * Math.sin(2 * Math.PI * 8 * tt)), 'balance');
   t('Balance blendet schnelles Zittern weitgehend aus', Z && Z.mg < 6, Z && Z.mg);
+
+  // Wach-Check
+  const pv = pvtStats([250, 260, 270, 280, 290, 300, 310, 320, 510, 3000]);
+  t('Wach-Check: Median, Aussetzer, langsamstes Zehntel', pv && pv.ms === 295 && pv.lapses === 2 && pv.n === 10 && pv.slow === 3000, JSON.stringify(pv));
+  t('Wach-Check: zu wenige Reaktionen liefern nichts', pvtStats([300, 310]) === null);
+  t('Wach-Check: genau an der Schwelle zählt als Aussetzer', pvtStats([200, 200, 200, 200, 500]).lapses === 1 && pvtStats([200, 200, 200, 200, 499]).lapses === 0);
+  const wd = labText({ datum: '2026-11-16', wach: { ms: 295, lapses: 2, n: 40, slow: 620, fehl: 0 } });
+  t('Wach-Check im Export', wd.includes('Wach-Check Reaktion: 295 ms') && wd.includes('Wach-Check Aussetzer: 2 mal') && wd.includes('"lab_wach_ms":295') && wd.includes('"lab_wach_aussetzer":2'), wd);
+  t('Wach-Check: null Aussetzer werden exportiert', labText({ datum: '2026-11-16', wach: { ms: 280, lapses: 0, n: 40, slow: 400 } }).includes('"lab_wach_aussetzer":0'));
 
   // Werte, Schnitt, Export
   const days = {}; ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].forEach((d, i) => { days[d] = { datum: d, reaktion: { ms: 280 + i * 10, fehl: 0 }, puls: { hr: 60, rmssd: 40, quality: i === 0 ? 0.3 : 0.9 } }; });
