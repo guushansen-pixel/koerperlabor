@@ -52,6 +52,10 @@ textarea.mono { width: 100%; height: 110px; background: #0E1319; color: var(--tx
 .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
 .keys button { font-size: 22px; padding: 14px 0; }
 canvas.trace { width: 100%; height: 90px; display: block; margin-top: 10px; }
+#rs-ball { width: 150px; height: 150px; border-radius: 50%; margin: 6px auto 10px; background: radial-gradient(circle, var(--acc), #1E5F58); transform: scale(.45); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px 0; }
+.chips button.on { background: var(--acc); border-color: var(--acc); color: #06201D; font-weight: 600; }
+table.t { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; } table.t td { padding: 4px 6px; border-top: 1px solid var(--line); text-align: right; } table.t td:first-child { text-align: left; }
 .digit { font-size: 90px; font-weight: 700; text-align: center; min-height: 130px; }
 #modal { position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
 #modal > div { background: var(--card); width: 100%; max-width: 560px; border-radius: 16px 16px 0 0; padding: 16px 16px calc(var(--sab) + 16px); }
@@ -115,7 +119,11 @@ const METRICS = [
   { k: 'zittern', f: 'mg', label: 'Zittern', unit: 'mg', d: 1, json: 'lab_zittern_mg' },
   { k: 'balance', f: 'mg', label: 'Balance (Schwanken)', unit: 'mg', d: 1, json: 'lab_balance_mg' },
   { k: 'sprung', f: 'cm', label: 'Sprung', unit: 'cm', d: 1, json: 'lab_sprung_cm' },
-  { k: 'atem', f: 'bpm', label: 'Atemzüge', unit: '/min', d: 1, json: 'lab_atem' }];
+  { k: 'atem', f: 'bpm', label: 'Atemzüge', unit: '/min', d: 1, json: 'lab_atem' },
+  // Ohne json: erscheint in der App und im Verlauf, geht aber nicht in den Health-OS-Export.
+  { k: 'tempo', f: 'rueck', label: 'Tempo Ablassen', unit: 's', d: 1 },
+  { k: 'tritt', f: 'spm', label: 'Trittfrequenz', unit: '/min', d: 0 },
+  { k: 'resonanz', f: 'rate', label: 'Resonanz-Atmung', unit: '/min', d: 1 }];
 const MIN_QUALITY = 0.6;
 // Wert einer Messgroesse an einem Tag; HRV nur bei brauchbarem Signal.
 function val(day, m) {
@@ -179,7 +187,7 @@ function analyzePPG(ts, vs, skip) {
   const med = median(plaus), ok = ibi.map(d => Math.abs(d - med) <= 0.25 * med), good = ibi.filter((d, i) => ok[i]);
   let sq = 0, c = 0;
   for (let i = 1; i < ibi.length; i++) if (ok[i] && ok[i - 1]) { sq += (ibi[i] - ibi[i - 1]) * (ibi[i] - ibi[i - 1]); c++; }
-  return { hr: 60 / mean(good), rmssd: c >= 10 ? Math.sqrt(sq / c) * 1000 : null, quality: good.length / ibi.length, beats: good.length };
+  return { hr: 60 / mean(good), rmssd: c >= 10 ? Math.sqrt(sq / c) * 1000 : null, quality: good.length / ibi.length, beats: good.length, t: pt.slice(1), ibi, okIbi: ok };
 }
 // Besseren der beiden Farbkanaele nehmen (Rot uebersteuert mit Blitz auf manchen Geraeten).
 function bestPPG(S, skip) {
@@ -244,6 +252,84 @@ function pvtStats(rts) {
   if (rts.length < 5) return null;
   const s = Array.from(rts).sort((a, b) => a - b), k = Math.max(1, Math.round(s.length / 10));
   return { ms: Math.round(median(s)), lapses: s.filter(v => v >= LAPSE_MS).length, n: s.length, slow: Math.round(mean(s.slice(-k))) };
+}
+
+// Resonanzfrequenz-Suche: Wie stark schwingt der Puls im Atemtakt? bt = Zeit am Ende jedes
+// Schlagabstands (s), ibi = Schlagabstaende (s), ok = brauchbar?, perMin = Atemzuege pro Minute.
+// Der Pulsverlauf wird auf 4 Hz gebracht und sein Anteil genau bei der Atemfrequenz bestimmt
+// (ueber ganze Atemzuege). Ergebnis: Schwankung von Tal zu Gipfel in Schlaegen pro Minute.
+function rsaSwing(bt, ibi, ok, perMin) {
+  const ts = [], hs = []; for (let i = 0; i < ibi.length; i++) if (ok[i]) { ts.push(bt[i] - ibi[i] / 2); hs.push(60 / ibi[i]); }
+  if (ts.length < 20) return null;
+  const HZ = 4, x = resample(ts, hs, HZ), per = HZ * 60 / perMin, n = Math.floor(Math.floor(x.length / per) * per);
+  if (n < per * 3) return null;
+  let m = 0; for (let i = 0; i < n; i++) m += x[i]; m /= n;
+  let c = 0, q = 0; const w = 2 * Math.PI / per;
+  for (let i = 0; i < n; i++) { c += (x[i] - m) * Math.cos(w * i); q += (x[i] - m) * Math.sin(w * i); }
+  return Math.round(4 * Math.sqrt(c * c + q * q) / n * 10) / 10;
+}
+// Beste Stufe: groesste Schwankung unter den Stufen mit brauchbarem Signal.
+function resonanzBest(list) { const g = list.filter(x => x.swing != null && x.q >= MIN_QUALITY); return g.length ? g.reduce((a, b) => b.swing > a.swing ? b : a) : null; }
+
+// Tempo-Waechter: Das Handy sitzt an einem Koerperteil, der bei der Uebung kippt (Unterarm,
+// Oberschenkel, Oberarm). Aus der Richtung der Schwerkraft wird ein Kippwinkel, aus dessen
+// Umkehrpunkten die Dauer jeder Hin- und Rueckbewegung.
+function tempoAngle(S) {
+  const HZ = 25, ax = ['x', 'y', 'z'].map(k => movAvg(resample(S.t, S[k], HZ), 7)), n = ax[0].length;
+  if (n < HZ * 2) return null;
+  const rng = ax.map(a => { let lo = Infinity, hi = -Infinity; for (let i = 0; i < n; i++) { if (a[i] < lo) lo = a[i]; if (a[i] > hi) hi = a[i]; } return hi - lo; });
+  const rot = rng.indexOf(Math.min(rng[0], rng[1], rng[2])), pl = [0, 1, 2].filter(i => i !== rot);     // Drehachse = Achse, die sich am wenigsten aendert
+  if (Math.max(rng[pl[0]], rng[pl[1]]) < 2.5) return null;                                              // keine Kippbewegung
+  const ang = new Float64Array(n); let prev = 0, off = 0;
+  for (let i = 0; i < n; i++) { const a = Math.atan2(ax[pl[0]][i], ax[pl[1]][i]); if (i) { if (a - prev > Math.PI) off -= 2 * Math.PI; else if (a - prev < -Math.PI) off += 2 * Math.PI; } prev = a; ang[i] = a + off; }
+  return { hz: HZ, ang };
+}
+// Phasen zwischen Umkehrpunkten (Umkehr gilt ab H rad Gegenbewegung). Dauer = Zeit von 10 % bis
+// 90 % des Wegs, hochgerechnet: Pausen oben und unten zaehlen so nicht zur Bewegung.
+function tempoPhases(ang, hz, H) {
+  const n = ang.length, out = []; H = H || 0.3;
+  const add = (a, b, open) => {
+    const tr = ang[b] - ang[a]; let i10 = a, i90 = b;
+    for (let i = a; i <= b; i++) if ((ang[i] - ang[a]) / tr >= 0.1) { i10 = i; break; }
+    for (let i = i10; i <= b; i++) if ((ang[i] - ang[a]) / tr >= 0.9) { i90 = i; break; }
+    out.push({ dir: tr > 0 ? 1 : -1, dur: (i90 - i10) / hz / 0.8, end: b / hz, open: !!open });
+  };
+  let dir = 0, lo = 0, hi = 0, ext = 0, last = 0;
+  for (let i = 1; i < n; i++) {
+    const v = ang[i];
+    if (!dir) { if (v < ang[lo]) lo = i; if (v > ang[hi]) hi = i; if (v - ang[lo] > H) { dir = 1; last = lo; ext = i; } else if (ang[hi] - v > H) { dir = -1; last = hi; ext = i; } continue; }
+    if (dir * (v - ang[ext]) > 0) ext = i;
+    else if (dir * (ang[ext] - v) > H) { add(last, ext); last = ext; dir = -dir; ext = i; }
+  }
+  if (dir && Math.abs(ang[ext] - ang[last]) > H) add(last, ext, true);          // letzte Bewegung ohne Umkehr danach
+  return { phases: out, still: dir ? (n - 1 - ext) / hz : n / hz };
+}
+// Die erste Bewegung ist das Heben ("hin"), die Gegenrichtung das Ablassen ("rueck").
+// fertig = Zahl der Ablass-Phasen, die sicher zu Ende sind (fuer die Rueckmeldung waehrend der Uebung).
+function analyzeTempo(S, ziel) {
+  const A = tempoAngle(S); if (!A) return null;
+  const P = tempoPhases(A.ang, A.hz), ph = P.phases; if (!ph.length) return null;
+  const hin = ph.filter(x => x.dir === ph[0].dir).map(x => x.dur), rp = ph.filter(x => x.dir !== ph[0].dir), rueck = rp.map(x => x.dur);
+  const r1 = v => Math.round(v * 10) / 10;
+  return { reps: rueck.length, hin: r1(median(hin)), rueck: rueck.length ? r1(median(rueck)) : null, ziel, treu: rueck.length ? Math.round(100 * rueck.filter(d => d >= ziel * 0.85).length / rueck.length) : 0,
+    alle: rueck.map(r1), fertig: rp.filter(x => !x.open || P.still > 0.7).length, still: P.still };
+}
+
+// Trittfrequenz: Schritte pro Minute aus dem Betrag der Beschleunigung. Gesucht wird der
+// kuerzeste Abstand, in dem sich das Signal deutlich wiederholt (Autokorrelation). So zaehlt
+// jeder Schritt, auch wenn ein Bein staerker durchschlaegt als das andere.
+function analyzeCadence(S) {
+  const HZ = 50, mag = resample(S.t, S.x.map((x, i) => Math.sqrt(x * x + S.y[i] * S.y[i] + S.z[i] * S.z[i])), HZ), n = mag.length;
+  if (n < HZ * 10) return null;
+  const y = sub(movAvg(mag, 5), movAvg(mag, HZ + 1)); let e0 = 0; for (let i = 0; i < n; i++) e0 += y[i] * y[i];
+  if (Math.sqrt(e0 / n) < 0.3) return null;                                    // kaum Bewegung
+  const L0 = Math.round(HZ * 0.22), L1 = Math.round(HZ * 1.6), r = new Float64Array(L1 + 2);
+  for (let l = L0 - 1; l <= L1 + 1; l++) { let q = 0; for (let i = l; i < n; i++) q += y[i] * y[i - l]; r[l] = q / e0; }
+  const peaks = []; for (let l = L0; l <= L1; l++) if (r[l] > r[l - 1] && r[l] >= r[l + 1]) peaks.push(l);
+  if (!peaks.length) return null;
+  const best = Math.max.apply(null, peaks.map(l => r[l])); if (best < 0.25) return null;
+  const l = peaks.find(k => r[k] >= 0.4 * best), d = r[l - 1] - 2 * r[l] + r[l + 1], lag = l + (d ? 0.5 * (r[l - 1] - r[l + 1]) / d : 0);
+  return { spm: Math.round(60 * HZ / lag), reg: Math.round(r[l] * 100) / 100 };
 }
 
 // ---------------------------------------------------------------- Ton / Vibration
@@ -532,8 +618,100 @@ const TESTS = {
     intro: '<p>Lege dich auf den Rücken und das Handy mit dem Display nach oben auf den Bauch, etwa auf Höhe des Nabels. Nach dem hohen Ton 60 Sekunden ganz normal atmen, nicht steuern. Am Ende kommen ein tiefer Ton und eine Vibration.</p>',
     note: r => r.breaths + ' Atemzüge erkannt · Unregelmäßigkeit ' + Math.round(r.cv * 100) + ' %',
     start(ok, fail) { recordMotion(60, 'ruhig atmen', S => { const r = analyzeBreath(S); if (r) ok(r); else fail('Keine Atembewegung erkannt. Liegt das Handy flach auf dem Bauch?'); }, fail); } },
+  // Die folgenden drei sind Einzeltests (solo): Sie gehoeren nicht in den Morgen-Check.
+  tempo: { name: 'Tempo-Wächter', dur: 60, solo: true,
+    intro: '<p>Für Kraft- und Reha-Übungen, bei denen das Ablassen langsam sein soll. Befestige das Handy fest an dem Körperteil, der sich bei der Übung neigt: am Unterarm (Curls, Handgelenk), am Oberschenkel (Kniebeuge) oder am Oberarm (Liegestütz). Ein Sportarmband oder ein fester Ärmel reicht.</p><p>Beginne in der Ausgangsstellung. Nach jedem Ablassen kommt ein hoher Ton, wenn es langsam genug war, sonst ein tiefer mit Vibration. Bleibst du sechs Sekunden ruhig, endet die Messung.</p><p class="muted small">Funktioniert nicht, wenn sich das Handy nur gerade auf und ab bewegt, ohne zu kippen (z. B. an der Hantelstange beim Bankdrücken).</p>',
+    note: r => r.reps + ' Wiederholungen · Heben ' + fmt(r.hin, 1) + ' s · Ziel beim Ablassen ' + fmt(r.ziel, 0) + ' s, erreicht bei ' + r.treu + ' %<br>Ablassen einzeln: ' + r.alle.map(v => fmt(v, 1)).join(' · ') + ' s',
+    start(ok, fail) {
+      const s = db.settings; let ziel = s.tempoZiel || 4;
+      const run = () => {
+        body('<div class="center"><div class="muted small">Wiederholungen</div><div class="big" id="tw-n">3</div><div class="muted" id="tw-l">gleich geht es los</div></div><div class="bar"><i id="tw-bar"></i></div>');
+        const rec = motionRecorder(); cleanup(() => rec.stop());
+        const count = n => {
+          if (n > 0) { $('tw-n').textContent = n; beep(440, 0.08); later(1000, () => count(n - 1)); return; }
+          const S = rec.S; S.t.length = S.x.length = S.y.length = S.z.length = 0; beep(880, 0.25); buzz(80);
+          const t0 = performance.now(); let told = 0; $('tw-n').textContent = '0'; $('tw-l').textContent = 'Ablassen in ' + ziel + ' Sekunden';
+          const tick = () => {
+            const el = (performance.now() - t0) / 1000, R = S.t.length > 50 ? analyzeTempo(S, ziel) : null;
+            if (el > 4 && S.t.length < 20) { fail('Der Bewegungssensor liefert keine Daten.'); return; }
+            if (R) {
+              while (told < R.fertig) { const d = R.alle[told++]; if (d >= ziel * 0.85) beep(880, 0.1); else { beep(300, 0.25); buzz(200); } $('tw-l').textContent = 'letztes Ablassen: ' + fmt(d, 1) + ' s' + (d >= ziel * 0.85 ? '' : ' (zu schnell)'); }
+              $('tw-n').textContent = R.fertig;
+            }
+            if (el >= TEMPO_SEC || (R && R.reps >= 2 && R.fertig >= R.reps && R.still > 6)) {
+              rec.stop(); beep(660, 0.3); buzz([120, 80, 120]);
+              if (R && R.reps >= 2) ok({ reps: R.reps, hin: R.hin, rueck: R.rueck, ziel: R.ziel, treu: R.treu, alle: R.alle }); else fail('Keine Wiederholungen erkannt. Das Handy muss an einem Körperteil sitzen, der bei der Übung deutlich kippt.');
+              return;
+            }
+            $('tw-bar').style.width = (el / TEMPO_SEC * 100) + '%'; later(250, tick);
+          };
+          tick();
+        };
+        count(3);
+      };
+      const cfg = () => {
+        body('<div class="center muted">Wie lange soll das Ablassen dauern?</div><div class="chips">' + [2, 3, 4, 5, 6].map(z => '<button data-z="' + z + '" class="' + (z === ziel ? 'on' : '') + '">' + z + ' s</button>').join('') + '</div><button class="primary block" id="tw-go">Los</button>');
+        $('m-body').querySelectorAll('[data-z]').forEach(b => b.onclick = () => { ziel = +b.dataset.z; s.tempoZiel = ziel; store(K.set, s); cfg(); });
+        $('tw-go').onclick = run;
+      };
+      cfg();
+    } },
+  tritt: { name: 'Trittfrequenz', dur: 35, solo: true,
+    intro: '<p>Schritte pro Minute beim Laufen oder Gehen. Nimm das Handy fest in die Hand oder steck es in eine enge Tasche und lauf schon los. Nach dem hohen Ton wird 30 Sekunden gemessen, bis der tiefe Ton kommt. Lauf dabei gleichmäßig in deinem normalen Tempo.</p><p class="muted small">Gezählt werden die Schritte beider Beine. Sitzt das Handy sehr einseitig (Hosentasche), kann die Hälfte herauskommen.</p>',
+    note: r => 'Gleichmäßigkeit ' + Math.round(r.reg * 100) + ' %',
+    start(ok, fail) { recordMotion(30, 'gleichmäßig laufen', S => { const r = analyzeCadence(S); if (r) ok(r); else fail('Kein gleichmäßiger Schritt erkannt. Handy fester halten und durchgehend laufen.'); }, fail); } },
+  resonanz: { name: 'Resonanz-Atmung', dur: 480, solo: true,
+    intro: '<p>Sucht das Atemtempo, bei dem dein Puls am stärksten mit dem Atem mitschwingt. Du atmest nacheinander in fünf Tempi (6,5 bis 4,5 Atemzüge pro Minute), je gut eine Minute, mit dem Finger auf Kamera und Blitz wie beim Pulstest. Der Kreis führt dich: wird er groß, einatmen; wird er klein, ausatmen. Zwischen den Stufen kannst du den Finger wegnehmen.</p><p class="muted small">Setz dich bequem hin, atme durch die Nase und nicht tiefer als angenehm. Wird dir schwindelig, atme normal weiter und brich ab. Dauer etwa acht Minuten.</p>',
+    note: r => '<table class="t">' + r.alle.map(x => '<tr><td>' + fmt(x.rate, 1) + ' /min' + (x.rate === r.rate ? ' ◀' : '') + '</td><td>' + (x.swing == null || x.q < MIN_QUALITY ? 'nicht gewertet' : fmt(x.swing, 1) + ' Schläge Schwankung') + '</td></tr>').join('') + '</table>' +
+      '<div style="margin-top:8px">Bei ' + fmt(r.rate, 1) + ' Atemzügen pro Minute schwankte dein Puls am stärksten. Liegen zwei Stufen nah beieinander, ist der Unterschied nicht aussagekräftig; wiederhole die Suche an einem anderen Tag.</div>',
+    start(ok, fail) {
+      const out = []; let k = 0;
+      const pause = () => {
+        runCleanup(); RUN.token++;
+        if (k >= RES_RATES.length) { const b = resonanzBest(out); if (b) ok({ rate: b.rate, swing: b.swing, alle: out }); else fail('In keiner Stufe war das Pulssignal brauchbar. Finger locker auflegen und ruhig halten.'); return; }
+        const l = out[out.length - 1];
+        body('<div class="center"><div class="muted small">Stufe ' + k + ' von ' + RES_RATES.length + ' fertig</div><div class="big">' + (l.swing == null || l.q < MIN_QUALITY ? 'Signal zu unruhig' : fmt(l.swing, 1) + ' <span class="small muted">Schläge Schwankung</span>') + '</div>' +
+          '<div class="muted small">Finger kurz weg, Hand lockern, normal atmen.</div></div><button class="primary block" id="rs-next">Weiter mit ' + fmt(RES_RATES[k], 1) + ' pro Minute</button>');
+        $('rs-next').onclick = stage;
+      };
+      const stage = () => {
+        RUN.token++; const tok = RUN.token, rate = RES_RATES[k], per = 60 / rate;
+        body('<div class="center"><div class="muted small">Stufe ' + (k + 1) + ' von ' + RES_RATES.length + ' · ' + fmt(rate, 1) + ' Atemzüge pro Minute</div><div id="rs-ball"></div><div class="big" id="rs-txt">–</div><div class="muted small" id="rs-hint">Kamera startet …</div></div><div class="bar"><i id="rs-bar"></i></div>');
+        Cam.open().then(cam => {
+          if (!RUN.active || tok !== RUN.token) { cam.close(); return; }
+          cleanup(() => cam.close());
+          let S = { t: [], r: [], g: [] }, t0 = null, lost = 0, ein = false;
+          cam.onFrame = (t, r, g, b) => {
+            if (!RUN.active || tok !== RUN.token) return;
+            if (!(r > 60 && r > 1.5 * g && r > 1.5 * b)) {
+              if (t0 !== null && ++lost > 45) { t0 = null; S = { t: [], r: [], g: [] }; $('rs-bar').style.width = '0'; $('rs-txt').textContent = '–'; }
+              if (t0 === null) $('rs-hint').textContent = 'Finger auf Kamera und Blitz legen' + (cam.torch ? '' : ' (Blitz ließ sich nicht einschalten: gegen eine helle Lampe halten)');
+              return;
+            }
+            lost = 0; if (t0 === null) { t0 = t; $('rs-hint').textContent = 'Im Takt des Kreises atmen'; }
+            const el = (t - t0) / 1000, ph = (el % per) / per, e = ph < 0.4; S.t.push(el); S.r.push(r); S.g.push(g);
+            $('rs-ball').style.transform = 'scale(' + (0.45 + 0.55 * (e ? ph / 0.4 : 1 - (ph - 0.4) / 0.6)).toFixed(3) + ')';
+            if (e !== ein) { ein = e; $('rs-txt').textContent = e ? 'Einatmen' : 'Ausatmen'; if (e) beep(520, 0.08); }
+            $('rs-bar').style.width = Math.min(100, el / RES_SEC * 100) + '%';
+            if (el >= RES_SEC) {
+              cam.close(); buzz(120);
+              const a = analyzePPG(S.t, S.r, RES_SKIP), c = analyzePPG(S.t, S.g, RES_SKIP), sc = x => x ? x.quality * x.beats : -1, best = sc(a) >= sc(c) ? a : c;
+              out.push({ rate, swing: best ? rsaSwing(best.t, best.ibi, best.okIbi, rate) : null, q: best ? Math.round(best.quality * 100) / 100 : 0, hr: best ? Math.round(best.hr) : null });
+              k++; pause();
+            }
+          };
+          later(4000, () => { if (!cam.frames) fail('Die Kamera liefert keine Bilder.'); });
+        }).catch(e => { if (RUN.active && tok === RUN.token) fail('Kamera nicht verfügbar: ' + (e && (e.message || e.name) || 'unbekannter Fehler')); });
+      };
+      stage();
+    } },
 };
-const TEST_ORDER = ['puls', 'reaktion', 'wach', 'tapping', 'merken', 'zittern', 'sprung', 'balance', 'atem'];
+// Veraenderbar, damit sich die Tests im Browser abkuerzen lassen.
+let TEMPO_SEC = 90, RES_SEC = 75;
+const RES_RATES = [6.5, 6, 5.5, 5, 4.5], RES_SKIP = 10;
+function durTxt(sec) { return sec >= 120 ? Math.round(sec / 60) + ' min' : sec + ' s'; }
+const TEST_ORDER = ['puls', 'reaktion', 'wach', 'tapping', 'merken', 'zittern', 'sprung', 'balance', 'atem', 'tempo', 'tritt', 'resonanz'];
+const CHECK_ORDER = TEST_ORDER.filter(id => !TESTS[id].solo);
 function drawTrace(cv, v) {
   const k = window.devicePixelRatio || 1, W = cv.clientWidth || 300, H = cv.clientHeight || 90, c = cv.getContext('2d');
   cv.width = W * k; cv.height = H * k; c.scale(k, k); c.clearRect(0, 0, W, H);
@@ -547,14 +725,14 @@ function drawTrace(cv, v) {
 // ---------------------------------------------------------------- Export
 function dayJson(d) {
   const j = { datum: d.datum };
-  METRICS.forEach(m => { const v = val(d, m); if (v != null) j[m.json] = v; });
+  METRICS.forEach(m => { const v = val(d, m); if (m.json && v != null) j[m.json] = v; });
   if (d.zeit) j.lab_zeit = d.zeit;
   return j;
 }
 // Reine Formatfunktion: eine Zeile pro Messwert, darunter der Tag als JSON.
 function labText(d) {
   const L = ['KOERPERLABOR ' + d.datum + ' (' + wdName(d.datum) + ')' + (d.zeit ? ' ' + d.zeit : '')];
-  METRICS.forEach(m => { const v = val(d, m); if (v != null) L.push(m.label + ': ' + v + ' ' + m.unit); });
+  METRICS.forEach(m => { const v = val(d, m); if (m.json && v != null) L.push(m.label + ': ' + v + ' ' + m.unit); });
   if (d.puls && !(d.puls.quality >= MIN_QUALITY)) L.push('HRV: nicht gewertet (Signal ' + Math.round((d.puls.quality || 0) * 100) + ' %)');
   if (d.reaktion && d.reaktion.fehl) L.push('Fehlstarts Reaktion: ' + d.reaktion.fehl);
   return L.join('\n') + '\n\nKOERPERLABOR-JSON-START\n' + JSON.stringify(dayJson(d)) + '\nKOERPERLABOR-JSON-ENDE';
@@ -637,9 +815,11 @@ function dayHtml(d) {
   return rows || '<div class="muted small">Noch keine Messung.</div>';
 }
 function copyCard(d) {
+  if (!METRICS.some(m => m.json && val(d, m) != null)) return '';          // nur Einzeltests ohne Export: nichts zu kopieren
   return '<button class="block primary" id="c-copy">Für Health-OS kopieren</button><div class="muted small" style="margin-top:6px">Danach in der Claude-App den Health-OS-Chat öffnen und einfügen.</div><button class="block" id="c-share">Teilen …</button>';
 }
 function bindCopy(d) {
+  if (!$('c-copy')) return;
   $('c-copy').onclick = () => copyText(labText(d), ok => { $('c-copy').textContent = ok ? 'Kopiert ✓ Jetzt im Health-OS-Chat einfügen' : 'Kopieren fehlgeschlagen'; });
   $('c-share').onclick = () => { if (NATIVE && NATIVE.shareText) { NATIVE.shareText(labText(d)); $('c-share').textContent = 'Teilen-Menü geöffnet'; } else copyText(labText(d), ok => { $('c-share').textContent = ok ? 'Kopiert ✓' : 'Fehlgeschlagen'; }); };
 }
@@ -651,10 +831,11 @@ VIEWS.home = () => {
   h += '<div class="card"><h2>Morgen-Check</h2><div class="muted small">' + s.check.map(id => TESTS[id].name).join(' · ') + ' · etwa ' + Math.round(secs / 60 * 2) / 2 + ' min</div>' +
     '<button class="block primary" id="h-check">' + (d ? 'Noch einmal messen' : 'Morgen-Check starten') + '</button></div>';
   h += '<div class="card"><h2>Heute' + (d && d.zeit ? ' · ' + d.zeit : '') + '</h2>' + dayHtml(d || { datum: today() }) + (d ? copyCard(d) : '') + '</div>';
-  h += '<div class="card"><h2>Einzeltests</h2><div class="grid">' + TEST_ORDER.map(id => '<button data-t="' + id + '">' + TESTS[id].name + '<span>' + TESTS[id].dur + ' s</span></button>').join('') + '</div></div>';
+  h += '<div class="card"><h2>Einzeltests</h2><div class="grid">' + CHECK_ORDER.map(id => '<button data-t="' + id + '">' + TESTS[id].name + '<span>' + durTxt(TESTS[id].dur) + '</span></button>').join('') + '</div></div>';
+  h += '<div class="card"><h2>Training und Atmung</h2><div class="grid">' + TEST_ORDER.filter(id => TESTS[id].solo).map(id => '<button data-t="' + id + '">' + TESTS[id].name + '<span>' + durTxt(TESTS[id].dur) + '</span></button>').join('') + '</div><div class="muted small" style="margin-top:8px">Diese drei gehören nicht zum Morgen-Check und gehen nicht in den Health-OS-Export.</div></div>';
   h += '<div class="row"><button class="grow" id="h-hist">Verlauf</button><button class="grow" id="h-info">Info</button><button class="grow" id="h-set">Mehr</button></div>';
   view.innerHTML = h;
-  $('h-check').onclick = () => startRun(TEST_ORDER.filter(id => s.check.indexOf(id) >= 0));
+  $('h-check').onclick = () => startRun(CHECK_ORDER.filter(id => s.check.indexOf(id) >= 0));
   view.querySelectorAll('[data-t]').forEach(b => b.onclick = () => startRun([b.dataset.t]));
   $('h-hist').onclick = () => go('history'); $('h-info').onclick = () => go('info'); $('h-set').onclick = () => go('settings');
   if (d) bindCopy(d);
@@ -673,14 +854,14 @@ VIEWS.history = () => {
 };
 VIEWS.settings = () => {
   const s = db.settings;
-  view.innerHTML = '<div class="card"><h2>Tests im Morgen-Check</h2>' + TEST_ORDER.map(id =>
+  view.innerHTML = '<div class="card"><h2>Tests im Morgen-Check</h2>' + CHECK_ORDER.map(id =>
     '<label class="c"><input type="checkbox" data-c="' + id + '"' + (s.check.indexOf(id) >= 0 ? ' checked' : '') + '> ' + TESTS[id].name + ' <span class="muted small">' + TESTS[id].dur + ' s</span></label>').join('') + '</div>' +
     '<div class="card"><h2>Allgemein</h2><label class="c"><input type="checkbox" id="s-snd"' + (s.sound ? ' checked' : '') + '> Töne</label>' +
     '<button class="block" id="s-check">Gerätecheck (Sensoren prüfen)</button></div>' +
     '<div class="card"><h2>Daten</h2><div class="row"><button class="grow" id="s-exp">Backup</button><button class="grow" id="s-imp">Einspielen</button></div></div>' +
-    '<div class="muted small">Körper-Labor v1.1 · kein Medizinprodukt</div>';
+    '<div class="muted small">Körper-Labor v1.2 · kein Medizinprodukt</div>';
   view.querySelectorAll('[data-c]').forEach(c => c.onchange = () => {
-    s.check = TEST_ORDER.filter(id => view.querySelector('[data-c="' + id + '"]').checked); store(K.set, s);
+    s.check = CHECK_ORDER.filter(id => view.querySelector('[data-c="' + id + '"]').checked); store(K.set, s);
   });
   $('s-snd').onchange = e => { s.sound = e.target.checked; store(K.set, s); };
   $('s-check').onclick = () => go('check'); $('s-exp').onclick = exportDialog; $('s-imp').onclick = importDialog;
@@ -719,11 +900,17 @@ VIEWS.info = () => {
     '<li><b>Zittern, Balance:</b> Der Bewegungssensor misst, wie ruhig du das Handy hältst oder stehst.</li>' +
     '<li><b>Sprung:</b> Aus der Flugzeit ergibt sich die Sprunghöhe. Sie gilt im Sport als Marker für die Tagesform der Beine.</li>' +
     '<li><b>Atmung:</b> Das Handy auf dem Bauch zählt die Atemzüge.</li></ul></div>' +
+    '<div class="card"><h2>Training und Atmung</h2><ul class="small">' +
+    '<li><b>Tempo-Wächter:</b> Das Handy sitzt am Arm oder Bein und misst über die Neigung, wie lange Heben und Ablassen dauern. Ein Ton sagt nach jeder Wiederholung, ob das Ablassen langsam genug war.</li>' +
+    '<li><b>Trittfrequenz:</b> Schritte pro Minute beim Laufen oder Gehen, aus dem Takt der Erschütterungen.</li>' +
+    '<li><b>Resonanz-Atmung:</b> Bei langsamem Atmen schwingt der Puls mit: schneller beim Einatmen, langsamer beim Ausatmen. Bei einem bestimmten Tempo, meist zwischen 4,5 und 6,5 Atemzügen pro Minute, ist das am stärksten. Die Suche probiert fünf Tempi durch. Das gefundene Tempo kannst du im Klangraum als Ziel des Atem-Dirigenten nehmen.</li></ul></div>' +
     '<div class="card"><h2>Ehrliche Einordnung</h2><ul class="small">' +
     '<li>Vergleiche nur dich mit dir, zur gleichen Tageszeit und unter gleichen Bedingungen. Der eigene Schnitt erscheint ab drei früheren Messungen.</li>' +
     '<li>Die HRV aus der Kamera ist grob: Die Kamera macht nur etwa 30 Bilder pro Sekunde. Ein Brustgurt oder dein Oura-Ring misst genauer. Bei unruhigem Signal wird sie gar nicht gewertet.</li>' +
     '<li>Die Sprunghöhe ist auf wenige Zentimeter genau, wenn das Handy fest am Körper bleibt.</li>' +
     '<li>Zittern und Balance sind Werte ohne Normbereich. Nur dein eigener Verlauf zählt.</li>' +
+    '<li>Die Resonanz-Suche hängt an der Pulsmessung per Kamera. Stufen mit unruhigem Signal werden nicht gewertet, und kleine Unterschiede zwischen zwei Stufen bedeuten nichts.</li>' +
+    '<li>Der Tempo-Wächter misst Neigung, keine Strecke. Er passt für Übungen, bei denen Arm oder Bein kippen.</li>' +
     '<li>Kein Medizinprodukt. Auffälliger Puls, Herzstolpern, Schwindel oder neues starkes Zittern gehören zum Arzt, nicht in diese App.</li></ul></div>';
 };
 function render(name) {
@@ -818,6 +1005,42 @@ function klTests() {
   const wd = labText({ datum: '2026-11-16', wach: { ms: 295, lapses: 2, n: 40, slow: 620, fehl: 0 } });
   t('Wach-Check im Export', wd.includes('Wach-Check Reaktion: 295 ms') && wd.includes('Wach-Check Aussetzer: 2 mal') && wd.includes('"lab_wach_ms":295') && wd.includes('"lab_wach_aussetzer":2'), wd);
   t('Wach-Check: null Aussetzer werden exportiert', labText({ datum: '2026-11-16', wach: { ms: 280, lapses: 0, n: 40, slow: 400 } }).includes('"lab_wach_aussetzer":0'));
+
+  // Resonanz: Puls 62 mit bekannter Schwankung im Atemtakt
+  const rsa = (perMin, amp, look) => { const f = perMin / 60, P2 = ppg(tb => 60 / (62 + amp * Math.sin(2 * Math.PI * f * tb)), 75, 0.4), A2 = analyzePPG(P2.ts, P2.vs, 10); return A2 ? rsaSwing(A2.t, A2.ibi, A2.okIbi, look || perMin) : null; };
+  let rs = rsa(6, 8); t('Resonanz: 16 Schläge Schwankung bei 6 pro Minute', rs !== null && near(rs, 16, 2.5), rs);
+  rs = rsa(4.5, 4); t('Resonanz: 8 Schläge Schwankung bei 4,5 pro Minute', rs !== null && near(rs, 8, 2), rs);
+  rs = rsa(6, 0); t('Resonanz: gleichmäßiger Puls schwankt kaum', rs !== null && rs < 1.5, rs);
+  rs = rsa(6, 8, 4.5); t('Resonanz: Schwankung in anderem Takt zählt kaum mit', rs !== null && rs < 5, rs);
+  t('Resonanz: beste Stufe nur unter brauchbaren', resonanzBest([{ rate: 6, swing: 9, q: 0.9 }, { rate: 5.5, swing: 14, q: 0.9 }, { rate: 5, swing: 30, q: 0.3 }, { rate: 4.5, swing: null, q: 0.9 }]).rate === 5.5 && resonanzBest([{ rate: 6, swing: null, q: 0.9 }]) === null);
+  A = analyzePPG(ppg(() => 60 / 72, 60, 0.4).ts, ppg(() => 60 / 72, 60, 0.4).vs, 4);
+  t('Puls liefert Schlagzeiten passend zu den Abständen', A && A.t.length === A.ibi.length && A.okIbi.length === A.ibi.length && near(A.t[5] - A.t[4], A.ibi[5], 1e-9));
+
+  // Tempo-Wächter: Unterarm kippt um maxRad; heben up s, halten, ablassen down s, Pause
+  const lift = (reps, up, hold, down, rest, maxRad, lead) => { const S = { t: [], x: [], y: [], z: [] }, cyc = up + hold + down + rest, sec = lead + reps * cyc + 8;
+    for (let i = 0; i < sec * 60; i++) { const tt = i / 60, u = tt - lead, c = u >= 0 && u < reps * cyc ? u % cyc : -1;
+      const th = c < 0 ? 0 : c < up ? maxRad * c / up : c < up + hold ? maxRad : c < up + hold + down ? maxRad * (1 - (c - up - hold) / down) : 0;
+      S.t.push(tt); S.x.push(9.81 * Math.sin(th) + (rnd() - 0.5) * 0.15); S.y.push((rnd() - 0.5) * 0.15); S.z.push(9.81 * Math.cos(th) + (rnd() - 0.5) * 0.15); } return S; };
+  let TW = analyzeTempo(lift(5, 1, 0.5, 4, 1, 2.2, 2), 4);
+  t('Tempo: 5 Wiederholungen, Heben 1 s, Ablassen 4 s', TW && TW.reps === 5 && near(TW.hin, 1, 0.25) && near(TW.rueck, 4, 0.4) && TW.treu === 100 && TW.fertig === 5, TW && JSON.stringify(TW));
+  TW = analyzeTempo(lift(4, 1.5, 0, 1.5, 0.5, 1.4, 1), 4);
+  t('Tempo: zu schnelles Ablassen fällt auf', TW && TW.reps === 4 && near(TW.rueck, 1.5, 0.3) && TW.treu === 0, TW && JSON.stringify(TW));
+  TW = analyzeTempo(lift(3, 2, 1, 3, 1, 3.6, 1), 3);
+  t('Tempo: auch über eine halbe Drehung hinaus', TW && TW.reps === 3 && near(TW.hin, 2, 0.35) && near(TW.rueck, 3, 0.4), TW && JSON.stringify(TW));
+  t('Tempo: ruhiges Handy liefert nichts', analyzeTempo(lift(0, 1, 0, 1, 1, 2, 5), 4) === null);
+  const half = lift(5, 1, 0.5, 4, 1, 2.2, 2), cut = half.t.findIndex(v => v >= 2 + 1 + 0.5 + 2), hs = { t: half.t.slice(0, cut), x: half.x.slice(0, cut), y: half.y.slice(0, cut), z: half.z.slice(0, cut) };
+  TW = analyzeTempo(hs, 4); t('Tempo: laufendes Ablassen gilt noch nicht als fertig', TW && TW.reps === 1 && TW.fertig === 0, TW && JSON.stringify(TW));
+
+  // Trittfrequenz: Stöße im Schritttakt, jedes zweite Bein schwächer
+  const walk = (spm, a2, sec) => { const S = { t: [], x: [], y: [], z: [] }, per = 60 / spm; for (let i = 0; i < sec * 60; i++) { const tt = i / 60, k = Math.round(tt / per), d = tt - k * per, bump = (k % 2 ? a2 : 6) * Math.exp(-d * d / (2 * 0.04 * 0.04));
+    S.t.push(tt); S.x.push((rnd() - 0.5) * 0.6); S.y.push((rnd() - 0.5) * 0.6); S.z.push(9.81 + bump + (rnd() - 0.5) * 0.6); } return S; };
+  let TR = analyzeCadence(walk(170, 3.5, 30)); t('Trittfrequenz 170 beim Laufen', TR && near(TR.spm, 170, 3), TR && JSON.stringify(TR));
+  TR = analyzeCadence(walk(110, 5, 30)); t('Trittfrequenz 110 beim Gehen', TR && near(TR.spm, 110, 3), TR && JSON.stringify(TR));
+  TR = analyzeCadence(walk(180, 2.8, 30)); t('Trittfrequenz: ungleiche Beine zählen trotzdem einzeln', TR && near(TR.spm, 180, 3), TR && JSON.stringify(TR));
+  t('Trittfrequenz: Stehen liefert nichts', analyzeCadence(walk(170, 0, 30).t.length ? mot(30, () => 0) : null) === null);
+  const nx = labText({ datum: '2026-11-16', tempo: { rueck: 3.8, reps: 8 }, tritt: { spm: 172 }, resonanz: { rate: 5.5 }, reaktion: { ms: 280 } });
+  t('Tempo, Tritt und Resonanz gehen nicht in den Export', !/Tempo|Tritt|Resonanz|undefined/.test(nx) && nx.includes('"lab_reaktion_ms":280') && Object.keys(JSON.parse(nx.split('JSON-START\n')[1].split('\n')[0])).join() === 'datum,lab_reaktion_ms');
+  t('Solo-Tests stehen nicht im Morgen-Check', CHECK_ORDER.length === 9 && CHECK_ORDER.indexOf('tempo') < 0 && TEST_ORDER.every(id => TESTS[id] && TESTS[id].intro) && METRICS.every(m => TESTS[m.k]));
 
   // Werte, Schnitt, Export
   const days = {}; ['2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].forEach((d, i) => { days[d] = { datum: d, reaktion: { ms: 280 + i * 10, fehl: 0 }, puls: { hr: 60, rmssd: 40, quality: i === 0 ? 0.3 : 0.9 } }; });

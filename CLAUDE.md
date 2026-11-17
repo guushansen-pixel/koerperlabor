@@ -89,3 +89,22 @@ abkürzen lässt). Zwei neue Messgrößen, im Skill ergänzt. Abweichung von der
 üblichen 3-Minuten-Form des PVT: Aussetzer-Schwelle 500 ms statt 355 ms,
 weil ein Touchscreen selbst Verzögerung mitbringt. Selbsttest 34/34, im
 Browser mit verkürzter Dauer durchgespielt. APK `dist/koerperlabor-1.1.apk`.
+
+v1.2 (code 3, 2026-11-16): Tempo-Wächter (`tempoAngle`, `tempoPhases`,
+`analyzeTempo`), Trittfrequenz (`analyzeCadence`) und Resonanz-Atmung
+(`rsaSwing`, `resonanzBest`; `analyzePPG` liefert dafür jetzt auch `t`,
+`ibi`, `okIbi`). Alle drei sind `solo: true`: eigener Block auf der
+Startseite, nicht im Morgen-Check (`CHECK_ORDER`), und ihre `METRICS` haben
+kein `json`, also **kein neues `lab_*`-Feld und keine Skill-Änderung**.
+`TEMPO_SEC` und `RES_SEC` sind `let` zum Abkürzen im Browser. In einer
+Cloud-Sitzung gebaut, deshalb **noch keine APK**: am Laptop
+`.\build.ps1 -Release` (Standardwerte 1.2 / 3). Selbsttest 51/51; alle drei
+im Browser mit simulierten Sensoren durchgespielt (Kamera-Attrappe, die je
+Stufe ein Pulssignal mit anderer Atemschwankung liefert).
+
+Die Resonanz-Suche war bisher bewusst zurückgestellt, bis die HRV am Gerät
+brauchbar ist. Gebaut ist sie jetzt trotzdem, auf Daniels Wunsch; sie misst
+die grobe Pulsschwankung im Atemtakt, nicht RMSSD. Am Gerät offen: ob die
+Kamera das fünfmal 75 s sauber liefert, wie warm der Blitz am Finger wird,
+ob das Handy am Arm für den Tempo-Wächter fest genug sitzt und ob die Töne
+beim Training hörbar sind, und die Trittfrequenz gegen Mitzählen.
